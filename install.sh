@@ -72,9 +72,8 @@ macos_dep_homebrew() {
 install_bin() {
   PPM_BIN_FILE=$XDG_BIN_DIR/ppm
   PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
-echo 'hello bin'
   if [ ! -f $PPM_BIN_FILE ]; then
-    curl -o $PPM_LIB_FILE $PPM_LIB_URL
+    curl -o $PPM_BIN_FILE $PPM_BIN_URL
   fi
 }
 
@@ -141,11 +140,11 @@ echo 'hello bin'
 # debug
 # install_deps
 
-# main() {
+main() {
   source_lib_file
   ensure_deps
   setup_xdg
   install_bin
-# }
+}
 
-# main
+main

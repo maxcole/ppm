@@ -5,6 +5,9 @@ set -euo pipefail
 
 PPM_CACHE_DIR=$HOME/.cache/ppm
 
+PPM_CONFIG_DIR=$HOME/.config/ppm
+PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
+
 
 collect_repos() {
   REPOS=()

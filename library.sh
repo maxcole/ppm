@@ -1,7 +1,4 @@
 
-PPM_CONFIG_DIR=$HOME/.config/ppm
-PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
-
 
 # ZSH_CONFIG_DIR=$XDG_CONFIG_DIR/zsh
 

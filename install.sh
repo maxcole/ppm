@@ -11,10 +11,9 @@ set -euo pipefail
 
 
 XDG_BIN_DIR=$HOME/.local/bin
-
 XDG_CACHE_DIR=$HOME/.cache
-PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
 
+PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
 PPM_LIB_FILE=$PPM_CACHE_DIR/library.sh
 PPM_LIB_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/library.sh
 
@@ -73,6 +72,7 @@ macos_dep_homebrew() {
 install_bin() {
   PPM_BIN_FILE=$XDG_BIN_DIR/ppm
   PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
+echo 'hello bin'
   if [ ! -f $PPM_BIN_FILE ]; then
     curl -o $PPM_LIB_FILE $PPM_LIB_URL
   fi
@@ -141,11 +141,11 @@ install_bin() {
 # debug
 # install_deps
 
-main() {
+# main() {
   source_lib_file
   ensure_deps
   setup_xdg
   install_bin
-}
+# }
 
-main
+# main

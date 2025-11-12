@@ -3,127 +3,106 @@ set -euo pipefail
 
 [[ $# -eq 0 ]] && exit 0
 
-#######
-# The 'coder' package manager, aka 'cpm'
-#
-# Two profiles
-# 1. remote - export shares, full env, ssh auth key(s); typically linux hosts
-# 2. local - mount shares, partial env, ssh private key(s); typically mac hosts
-#
-# Process for all profiles:
-# 1. Install deps (based on os + arch)
-# 2. Clone the repos
-# 3. Install packages (with functions appropriate on os + arch + profile)
-# 3a. zsh basics
-# 3b. ssh stuff
-#######
-
-# BEGIN: common stuff to setup install.sh and ppm
-XDG_CACHE_DIR=$HOME/.cache
-PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
-
-PPM_LIB_FILE=$PPM_CACHE_DIR/library.sh
-PPM_LIB_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/library.sh
-
-# Source a local copy of the library file or download from a URL
-if [ ! -f $PPM_LIB_FILE ]; then
-  mkdir -p $PPM_CACHE_DIR
-  if [ ! -f $PPM_LIB_FILE ]; then # Download and source the script
-    if command -v wget &> /dev/null; then
-      wget -O $PPM_LIB_FILE $PPM_LIB_URL
-    elif command -v curl &> /dev/null; then
-      curl -o $PPM_LIB_FILE $PPM_LIB_URL
-    else
-      echo "Install wget or curl to continue."
-      exit 1
-    fi
-  fi
-fi
-source $PPM_LIB_FILE
-
-# END: common stuff to setup install.sh and ppm
-# Now we have the common lib sourced then just the ppm functions here
+PPM_CACHE_DIR=$HOME/.cache/ppm
 
 
-
-# PROJECTS_DIR=$HOME/code/projects
-
-# LIB_FILE=$PROJECTS_DIR/pcs/bootstrap/library.sh
-
-# CODE_DIR=$PROJECTS_DIR/rjayroach
-# CODE_REPO_PREFIX="git@github.com:maxcole/rjayroach"
-# CODE_REPOS=("claude" "coder")
-
-CODER_PROFILES=("local" "remote")
-# CODER_PROFILE_DIR=$ZSH_CONFIG_DIR
-# CODER_PROFILE_FILE=$ZSH_CONFIG_DIR/coder_profile.zsh
-# CODER_PACKAGES_DIR=$CODE_DIR/coder/packages
-# CODER_PACKAGES_HOME=$HOME/.cache/ppm
+collect_repos() {
+  REPOS=()
+    
+  # Read file into array, skipping empty lines and comments
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Skip empty lines and comments
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    REPOS+=("$line")
+  done < "$PPM_SOURCES_FILE"
+}
 
 
-# TODO: Source this from $PPM_CONFIG_DIR
-# CODE_REPO_PREFIX="git@github.com:maxcole/rjayroach"
+collect_packages() {
+  collect_repos
+  PACKAGES=()
 
-# CODER_PACKAGES_DIR=$HOME/.cache/ppm/rjayroach-coder/packages
-# TODO: ppm update will clone the git repos found in $PPM_SOURCES_FILE
-PPM_REPOS=("git@github.com:maxcole/rjayroach-coder")
-PPM_REPOS_NAMES=("rjayroach-coder")
+  for repo in "${REPOS[@]}"; do
+    local repo_name="${repo##*/}"      # Remove everything before last /
+    repo_name="${repo_name%.git}"      # Remove .git extension
 
+    while IFS= read -r dir; do
+      PACKAGES+=("$repo_name/$(basename "$dir")")
+    done < <(ls -d $PPM_CACHE_DIR/$repo_name/packages/*/)
+  done
+}
+
+
+# Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_CACHE_DIR
 update() {
-  for repo in "${PPM_REPOS[@]}"; do
-    # if [ ! -d $PPM_CACHE_DIR/$repo ]; then
-    if [ ! -d $PPM_CACHE_DIR/rjayroach-coder ]; then
-      git clone $repo $PPM_CACHE_DIR
+  collect_repos
+
+  # Iterate over repos and clone to $PPM_CACHE_DIR
+  for repo in "${REPOS[@]}"; do
+    # Extract repo name (everything after last / and before .git)
+    local repo_name="${repo##*/}"      # Remove everything before last /
+    repo_name="${repo_name%.git}"      # Remove .git extension
+        
+    if [ ! -d $PPM_CACHE_DIR/$repo_name ]; then
+      echo "Cloning: $repo"
+      git clone $repo $PPM_CACHE_DIR/$repo_name
+    else
+      echo "Skipping existing repo: $repo"
     fi
   done
 }
 
 
-# this script takes parameters of packages to install
-# so ./install.sh ruby tmux zsh neovim
-# and if it is just ./install then it is the base package by default
-# Each package can call this function to install their deps
+# List the packages found in the cached repositories
+list() {
+  collect_packages
+  for pkg in "${PACKAGES[@]}"; do
+    echo "$pkg"
+  done
+}
 
+
+# Install one or more packages as requested by the user
 install() {
+  collect_repos
+
   requested_packages=("$@")
   for pkg in "${requested_packages[@]}"; do
-echo "installing $pkg"
-#     pkg_dir=$CODER_PACKAGES_DIR/$pkg
-# 
-#     # If the package name is not found then skip to the next, otherwise source install.sh if the package has it
-#     if [[ ! -d $pkg_dir ]]; then
-#       echo "Invalid package: $pkg"
-#       continue fi
-# 
-#     # Check if the package has install.sh and source it
-#     [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
-#     $has_installer && source "$pkg_dir/install.sh"
-# 
-#     $has_installer && pre_install
-# 
-#     # Use stow to make softlinks into the user's home directory
-#     [[ -d $pkg_dir/home ]] && stow -d $pkg_dir -t $HOME home
-# 
-#     # invoke install_linux or install_macos
-#     func_name="install_$(os)"
-#     $has_installer && $func_name
-# 
-#     $has_installer && post_install
+
+    for repo in "${REPOS[@]}"; do
+      # Extract repo name (everything after last / and before .git)
+      local repo_name="${repo##*/}"      # Remove everything before last /
+      repo_name="${repo_name%.git}"      # Remove .git extension
+
+      pkg_dir=$PPM_CACHE_DIR/$repo_name/packages/$pkg
+
+      # If the package name is not found then skip to the next, otherwise source install.sh if the package has it
+      if [[ ! -d $pkg_dir ]]; then
+        echo "Package not found in $repo_name: $pkg"
+        continue
+      fi
+
+      # Check if the package has install.sh and source it
+      [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
+      $has_installer && source "$pkg_dir/install.sh"
+
+      $has_installer && pre_install
+
+      # Use stow to make softlinks into the user's home directory
+      [[ -d $pkg_dir/home ]] && stow -d $pkg_dir -t $HOME home
+
+      # invoke install_linux or install_macos
+      func_name="install_$(os)"
+      $has_installer && $func_name
+
+      $has_installer && post_install
+    done
   done
 }
 
-# pac_sel=$@
-# if [[ "$1" == "all" ]]; then
-#   pac_sel=$(find packages -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%f\n')
-# fi
-# 
-# install_packages $pac_sel
-
-list() {
-  echo "list"
-}
 
 main() {
+  source $PPM_CACHE_DIR/library.sh
   local command="$1"
   shift
 
@@ -131,13 +110,8 @@ main() {
     "$command" "$@"
   else
     echo "Error: Unknown command '$command'"
-    echo "Available commands: list, update, install"
+    echo "Available commands: update, list, install"
   fi
 }
 
 main "$@"
-
-
-
-
-

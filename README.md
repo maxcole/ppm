@@ -54,11 +54,9 @@ ppm install zsh
 
 # Developing
 ```bash
-mkdir $HOME/.config/ppm
-echo 'git@github.com:maxcole/ppm.git' >> $HOME/.config/ppm/sources.list
+rm -rf $HOME/.cache/ppm $HOME/.local/bin/ppm
 git clone git@github.com:maxcole/ppm.git $HOME/.cache/ppm
-cd $HOME/.local/bin
-ln -s $HOME/.cache/ppm/ppm .
+ln -s $HOME/.cache/ppm/ppm $HOME/.local/bin/ppm
 ```
 
 

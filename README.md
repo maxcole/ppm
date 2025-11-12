@@ -9,7 +9,8 @@
 - Installs dependencies for MacOS and Debian Linux
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- all
+# wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- all
+wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
 OR install manually

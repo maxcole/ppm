@@ -9,7 +9,6 @@ set -euo pipefail
 # 2. install the library file and the ppm bin script
 
 
-
 XDG_BIN_DIR=$HOME/.local/bin
 XDG_CACHE_DIR=$HOME/.cache
 
@@ -74,7 +73,10 @@ install_bin() {
   PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
   if [ ! -f $PPM_BIN_FILE ]; then
     curl -o $PPM_BIN_FILE $PPM_BIN_URL
+    chmod +x $PPM_BIN_FILE
   fi
+  mkdir -p $PPM_CONFIG_DIR
+  touch $PPM_SOURCES_FILE
 }
 
 

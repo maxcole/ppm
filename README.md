@@ -6,10 +6,9 @@
 
 - Installs the ppm script to $HOME/.local/bin/ppm
 - Installs the ppm library script to $HOME/.cache/ppm/library.sh
-- Installs dependencies for MacOS and Debian Linux
+- Verifies and installs dependencies for MacOS (xcode, homebrew) and Debian Linux (sudo)
 
 ```bash
-# wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- all
 wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
@@ -50,13 +49,13 @@ ppm install zsh
 ```
 
 
-# TODO
-
 # Developing
 ```bash
 rm -rf $HOME/.cache/ppm $HOME/.local/bin/ppm
 git clone git@github.com:maxcole/ppm.git $HOME/.cache/ppm
 ln -s $HOME/.cache/ppm/ppm $HOME/.local/bin/ppm
+echo 'git@github.com:maxcole/rjayroach-coder.git' > $HOME/.config/ppm/sources.list
+ppm update
 ```
 
 

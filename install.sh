@@ -18,12 +18,9 @@ PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
 PPM_LIB_FILE=$PPM_CACHE_DIR/library.sh
 PPM_LIB_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/library.sh
 
-PPM_BIN_FILE=$XDG_BIN_DIR/ppm
-PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
 
-
-# Source a local copy of the library file or download from a URL
-source_lib_file() {
+# Install a local copy of the library file from a URL
+ensure_lib_file() {
   if [ ! -f $PPM_LIB_FILE ]; then
     mkdir -p $PPM_CACHE_DIR
     if command -v wget &> /dev/null; then
@@ -35,7 +32,13 @@ source_lib_file() {
       exit 1
     fi
   fi
+}
+
+
+source_lib_file() {
   source $PPM_LIB_FILE
+  PPM_BIN_FILE=$XDG_BIN_DIR/ppm
+  PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
 }
 
 
@@ -50,6 +53,7 @@ ensure_deps() {
   install_dep "curl" "git" "stow" "wget"
 }
 
+
 ensure_deps_linux() {
   if [ ! check_sudo ]; then
     debug "ERROR!!"
@@ -58,6 +62,7 @@ ensure_deps_linux() {
     exit 1
   fi
 }
+
 
 ensure_deps_macos() {
   # Check for xcode
@@ -89,7 +94,9 @@ ensure_deps_macos() {
 
 
 setup_xdg() {
-  mkdir -p $HOME/.cache $HOME/.config $HOME/.local $HOME/.local/bin $HOME/.local/share $HOME/.local/state
+  mkdir -p $XDG_BIN_DIR $XDG_CACHE_DIR $XDG_CONFIG_DIR
+  mkdir -p $HOME/.local/share $HOME/.local/state
+  # mkdir -p $XDG_CONFIG_DIR/zsh
 }
 
 
@@ -104,6 +111,7 @@ install_bin() {
 
 
 main() {
+  ensure_lib_file
   source_lib_file
   ensure_deps
   setup_xdg
@@ -111,5 +119,3 @@ main() {
 }
 
 main
-
-# [[ ! -d $CONFIG_DIR/zsh ]] && mkdir -p $CONFIG_DIR/zsh

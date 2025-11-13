@@ -3,7 +3,14 @@ set -euo pipefail
 
 [[ $# -eq 0 ]] && exit 0
 
-PPM_CACHE_DIR=$HOME/.cache/ppm
+
+# XDG directories
+XDG_CACHE_DIR=$HOME/.cache
+XDG_LOCAL_DIR=$HOME/.local
+XDG_LOCAL_SHARE_DIR=$XDG_LOCAL_DIR/share
+
+# PPM directories and files
+PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
 
 
 collect_repos() {
@@ -101,6 +108,46 @@ install() {
 }
 
 
+# Remove one or more packages as requested by the user
+# TODO: Implement and test in ppm and packages
+remove() {
+  collect_repos
+
+  requested_packages=("$@")
+  for pkg in "${requested_packages[@]}"; do
+
+    for repo in "${REPOS[@]}"; do
+      # Extract repo name (everything after last / and before .git)
+      local repo_name="${repo##*/}"      # Remove everything before last /
+      repo_name="${repo_name%.git}"      # Remove .git extension
+
+      pkg_dir=$PPM_CACHE_DIR/$repo_name/packages/$pkg
+
+      # If the package name is not found then skip to the next, otherwise source install.sh if the package has it
+      if [[ ! -d $pkg_dir ]]; then
+        echo "Package not found in $repo_name: $pkg"
+        continue
+      fi
+
+      # Check if the package has install.sh and source it
+      [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
+      $has_installer && source "$pkg_dir/install.sh"
+
+      $has_installer && remove
+
+      # # Use stow to make softlinks into the user's home directory
+      # [[ -d $pkg_dir/home ]] && stow -d $pkg_dir -t $HOME home
+
+      # invoke remove_linux or remove_macos
+      func_name="remove_$(os)"
+      $has_installer && $func_name
+
+      # $has_installer && post_install
+    done
+  done
+}
+
+
 main() {
   source $PPM_CACHE_DIR/library.sh
   local command="$1"
@@ -110,7 +157,7 @@ main() {
     "$command" "$@"
   else
     echo "Error: Unknown command '$command'"
-    echo "Available commands: update, list, install"
+    echo "Available commands: update, list, install remove"
   fi
 }
 

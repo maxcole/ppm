@@ -65,30 +65,13 @@ ensure_deps_linux() {
 
 
 ensure_deps_macos() {
-  # Check for xcode
-  # if ! command -v python3 >/dev/null 2>&1; then
-  #   debug "ERROR!!"
-  #   debug ""
-  #   debug "python interpreter not found. Run 'xcode-select --install' from a terminal then rerun this script"
-  #   exit 1
-  # fi
-
   # Check for Homebrew
   if ! command -v brew >/dev/null 2>&1; then
     echo "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  fi
-  if ! command -v brew >/dev/null 2>&1; then
-    debug "ERROR!!"
-    debug ""
-    debug "brew command not found. Run the brew install script from a terminal then rerun this script"
-    exit 1
-  fi
-
-  # Check for xcode
-  if ! command -v python3 >/dev/null 2>&1; then
-    brew install mas
-    mas install 497799835 # Install xcode
+    # echo >> $HOME/.zprofile
+    # echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> $HOME/.zprofile
+    eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
 }
 

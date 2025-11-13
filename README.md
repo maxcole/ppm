@@ -1,7 +1,6 @@
 
 # Personal Package Manager
 
-
 ## Installation script
 
 - Installs the ppm script to $HOME/.local/bin/ppm
@@ -15,7 +14,7 @@ wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.
 OR install manually
 
 ```bash
-curl https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh
+curl -O https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh
 chmod +x ./install.sh
 ./install.sh
 ```
@@ -30,22 +29,22 @@ chmod +x ./install.sh
 ```bash
 mkdir $HOME/.config/ppm
 echo 'https://github.com/maxcole/rjayroach-coder.git' >> $HOME/.config/ppm/sources.list
-ppm update
+./local/bin/ppm update
 ```
-
-### List available packages
-
-```bash
-ppm list
-```
-
 
 ### Install
 
 - The ppm script iterates over items in sources.list looking for the requested packages to install
 
 ```bash
-ppm install zsh
+./local/bin/ppm install zsh git ssh coder
+```
+
+
+### List available packages
+
+```bash
+ppm list
 ```
 
 
@@ -61,7 +60,4 @@ ppm update
 
 # Manual Dependencies
 
-- ssh credentials for GH repo access
 - sudo priviledges
-# sudo echo "ansible ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ansible
-

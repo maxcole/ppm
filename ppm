@@ -102,7 +102,7 @@ install() {
       func_name="install_$(os)"
       $has_installer && $func_name
 
-      $has_installer && post_install
+      $has_installer && post_install || true
     done
   done
 }

@@ -109,7 +109,8 @@ install() {
 
 
 # Remove one or more packages as requested by the user
-# TODO: Implement and test in ppm and packages
+# TODO: Implement and test in ppm and packages; right now the only diff
+# between install and remove is the stow -D flag which removes existing symlinks
 remove() {
   collect_repos
 
@@ -135,8 +136,8 @@ remove() {
 
       $has_installer && remove
 
-      # # Use stow to make softlinks into the user's home directory
-      # [[ -d $pkg_dir/home ]] && stow -d $pkg_dir -t $HOME home
+      # Use stow to remove softlinks from the user's home directory
+      [[ -d $pkg_dir/home ]] && stow -D -d $pkg_dir -t $HOME home
 
       # invoke remove_linux or remove_macos
       func_name="remove_$(os)"

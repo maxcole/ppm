@@ -5,7 +5,8 @@
 
 - Installs the ppm script to $HOME/.local/bin/ppm
 - Installs the ppm library script to $HOME/.cache/ppm/library.sh
-- Verifies and installs dependencies for MacOS (xcode, homebrew) and Debian Linux (sudo)
+- Verifies and installs core dependencies for MacOS (xcode, homebrew) and Debian Linux (sudo)
+- Installs package dependencies for MacOS and Debian Linux (git, curl, stow)
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
@@ -28,35 +29,20 @@ chmod +x ./install.sh
 
 ```bash
 mkdir $HOME/.config/ppm
-echo 'https://github.com/maxcole/rjayroach-coder.git' >> $HOME/.config/ppm/sources.list
-./local/bin/ppm update
+echo 'https://github.com/maxcole/ppm-core.git' >> $HOME/.config/ppm/sources.list
+$HOME/.local/bin/ppm update
 ```
 
-### Install
+
+### Commands
+
+```bash
+ppm install # Install one or more packages
+ppm list # List available packages
+ppm update # Update, i.e. clone, configured repositories
+```
 
 - The ppm script iterates over items in sources.list looking for the requested packages to install
-
-```bash
-./local/bin/ppm install zsh git ssh coder
-```
-
-
-### List available packages
-
-```bash
-ppm list
-```
-
-
-# Developing
-```bash
-rm -rf $HOME/.cache/ppm $HOME/.local/bin/ppm
-git clone git@github.com:maxcole/ppm.git $HOME/.cache/ppm
-ln -s $HOME/.cache/ppm/ppm $HOME/.local/bin/ppm
-echo 'git@github.com:maxcole/rjayroach-coder.git' > $HOME/.config/ppm/sources.list
-ppm update
-```
-
 
 # Manual Dependencies
 

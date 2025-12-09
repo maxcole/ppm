@@ -1,6 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+NC='\033[0m' # No Color
+
+# ASCII Art Banner
+echo -e "${CYAN}"
+cat << "EOF"
+ ____  ____  __  __
+|  _ \|  _ \|  \/  |
+| |_) | |_) | |\/| |
+|  __/|  __/| |  | |
+|_|   |_|   |_|  |_|
+
+EOF
+echo -e "${CYAN}Personal Package Manager${NC}"
+exit
 
 # The purpose of this file is to:
 # 1. check that the dependencies are met

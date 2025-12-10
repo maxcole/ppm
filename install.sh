@@ -46,14 +46,12 @@ PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
 
 # Ensure dependencies
 ensure_deps() {
-  pkgs="curl git stow wget"
-
   if [[ "$(os)" == "linux" ]]; then
     ensure_deps_linux
-    sudo apt install "${pkgs[@]}" -y
+    sudo apt install curl git stow -y
   elif [[ "$(os)" == "macos" ]]; then
     ensure_deps_macos
-    brew install "${pkgs[@]}"
+    brew install git stow wget
   fi
 }
 

@@ -32,10 +32,7 @@ chmod +x ./install.sh
 
 ## Install PDOS packages
 
-- add sources (git repo with a packages subdir) to $HOME/.config/ppm/sources.list
-
 ```bash
-
 export PATH=$PATH:$HOME/.local/bin
 ppm add 'https://github.com/maxcole/pdos-core.git'
 ppm update
@@ -46,6 +43,9 @@ ppm install ruby
 ```
 
 #### Manual Installation of PDOS packages
+
+- add sources (git repo with a packages subdir) to $HOME/.config/ppm/sources.list
+
 ```bash
 echo 'https://github.com/maxcole/pdos-core.git' >> $HOME/.config/ppm/sources.list
 ppm update

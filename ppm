@@ -1,16 +1,71 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-[[ $# -eq 0 ]] && exit 0
+list_commands() {
+  echo "Available commands: update, list, install, remove"
+}
+
+if [[ $# -eq 0 ]]; then
+  echo "Error: Requires a command"
+  list_commands
+  exit 1
+fi
 
 
 # XDG directories
+XDG_BIN_DIR=$HOME/.local/bin
 XDG_CACHE_DIR=$HOME/.cache
-XDG_LOCAL_DIR=$HOME/.local
-XDG_LOCAL_SHARE_DIR=$XDG_LOCAL_DIR/share
+XDG_CONFIG_DIR=$HOME/.config
 
 # PPM directories and files
+PPM_BIN_FILE="$0"
 PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
+PPM_CONFIG_DIR=$XDG_CONFIG_DIR/ppm
+PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
+
+echo $PPM_BIN_FILE
+
+
+# Install dependencies using the OS specific pacakge manager (apt or homebrew)
+install_dep() {
+  for dep in "$@"; do
+    if [[ "$(os)" == "linux" ]]; then
+      sudo apt install $dep -y
+    elif [[ "$(os)" == "macos" ]]; then
+      if ! brew list "$dep" &>/dev/null; then
+        brew install $dep
+      elif brew outdated | grep -q "^$dep"; then
+        brew upgrade "$dep"
+      else
+        echo "$dep is installed and up-to-date"
+      fi
+    fi
+  done
+}
+
+
+# Detect the CPU architecture
+arch() {
+  local arch=$(uname -m)
+
+  if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
+    echo "arm64"
+  else
+    echo "amd64"
+  fi
+}
+
+
+# Detect the OS
+os() {
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    echo "linux"
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "macos"
+  else
+    echo "unsupported"
+  fi
+}
 
 
 collect_repos() {
@@ -148,9 +203,8 @@ remove() {
   done
 }
 
-
 main() {
-  source $PPM_CACHE_DIR/library.sh
+  # source $PPM_CACHE_DIR/library.sh
   local command="$1"
   shift
 
@@ -158,7 +212,8 @@ main() {
     "$command" "$@"
   else
     echo "Error: Unknown command '$command'"
-    echo "Available commands: update, list, install remove"
+    list_commands
+    exit 1
   fi
 }
 

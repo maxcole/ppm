@@ -21,57 +21,51 @@ cat << "EOF"
 
 EOF
 echo -e "${CYAN}Personal Package Manager${NC}"
-exit
 
 # The purpose of this file is to:
 # 1. check that the dependencies are met
-# all: passwordless sudo; packages: curl, wget, stow, etc
+# all: packages: curl, wget, stow, etc
+# linux: passwordless sudo
 # mac: xcode and brew with permissions
-# 2. install the library file and the ppm bin script
-
+# 2. download the ppm script to XDG_BIN_DIR
+# 3. create PPM_CACHE_DIR and PPM_SOURCES_FILE
 
 # XDG directories
+XDG_BIN_DIR=$HOME/.local/bin
 XDG_CACHE_DIR=$HOME/.cache
+XDG_CONFIG_DIR=$HOME/.config
 
 # PPM directories and files
+PPM_BIN_FILE=$XDG_BIN_DIR/ppm
+PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
 PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
-
-PPM_LIB_FILE=$PPM_CACHE_DIR/library.sh
-PPM_LIB_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/library.sh
-
-
-# Install a local copy of the library file from a URL
-ensure_lib_file() {
-  if [ ! -f $PPM_LIB_FILE ]; then
-    mkdir -p $PPM_CACHE_DIR
-    if command -v wget &> /dev/null; then
-      wget -O $PPM_LIB_FILE $PPM_LIB_URL
-    elif command -v curl &> /dev/null; then
-      curl -o $PPM_LIB_FILE $PPM_LIB_URL
-    else
-      echo "Install wget or curl to continue."
-      exit 1
-    fi
-  fi
-}
-
-
-source_lib_file() {
-  source $PPM_LIB_FILE
-  PPM_BIN_FILE=$XDG_BIN_DIR/ppm
-  PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
-}
+PPM_CONFIG_DIR=$XDG_CONFIG_DIR/ppm
+PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
 
 
 # Ensure dependencies
 ensure_deps() {
+  pkgs="curl git stow wget"
+
   if [[ "$(os)" == "linux" ]]; then
     ensure_deps_linux
+    sudo apt install "${pkgs[@]}" -y
   elif [[ "$(os)" == "macos" ]]; then
     ensure_deps_macos
+    brew install "${pkgs[@]}"
   fi
+}
 
-  install_dep "curl" "git" "stow" "wget"
+
+# Detect the OS
+os() {
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    echo "linux"
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "macos"
+  else
+    echo "unsupported"
+  fi
 }
 
 
@@ -81,6 +75,21 @@ ensure_deps_linux() {
     debug ""
     debug "enable sudo for this user"
     exit 1
+  fi
+}
+
+
+check_sudo() {
+  # Check if user has any sudo privileges without prompting
+  if ! sudo -n true 2>/dev/null; then
+    return 1
+  fi
+
+  # Check if user has sudo ALL privileges
+  if sudo -l 2>/dev/null | grep -q "(ALL) ALL"; then
+    return 0
+  else
+    return 1
   fi
 }
 
@@ -97,29 +106,20 @@ ensure_deps_macos() {
 }
 
 
-setup_xdg() {
+setup_ppm() {
   mkdir -p $XDG_BIN_DIR $XDG_CACHE_DIR $XDG_CONFIG_DIR
-  mkdir -p $HOME/.local/share $HOME/.local/state
-  # mkdir -p $XDG_CONFIG_DIR/zsh
-}
-
-
-install_bin() {
   if [ ! -f $PPM_BIN_FILE ]; then
     curl -o $PPM_BIN_FILE $PPM_BIN_URL
     chmod +x $PPM_BIN_FILE
   fi
-  mkdir -p $PPM_CONFIG_DIR
+  mkdir -p $PPM_CACHE_DIR $PPM_CONFIG_DIR
   touch $PPM_SOURCES_FILE
 }
 
 
 main() {
-  ensure_lib_file
-  source_lib_file
   ensure_deps
-  setup_xdg
-  install_bin
+  setup_ppm
 }
 
 main

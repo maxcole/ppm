@@ -4,9 +4,8 @@
 ## Installation script
 
 - Installs the ppm script to $HOME/.local/bin/ppm
-- Installs the ppm library script to $HOME/.cache/ppm/library.sh
 - Verifies and installs core dependencies for MacOS (xcode, homebrew) and Debian Linux (sudo)
-- Installs package dependencies for MacOS and Debian Linux (git, curl, stow)
+- Installs package dependencies for MacOS and Debian Linux (curl, git, stow, wget)
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
@@ -23,20 +22,27 @@ chmod +x ./install.sh
 - TODO: update README with code to use wget to just download the install script
 
 
-## Usage
+## Install PDOS packages
 
-- add sources (git repos with a packages subdir) to $HOME/.config/ppm/sources.list
+- add sources (git repo with a packages subdir) to $HOME/.config/ppm/sources.list
 
 ```bash
-mkdir $HOME/.config/ppm
-echo 'https://github.com/maxcole/ppm-core.git' >> $HOME/.config/ppm/sources.list
-$HOME/.local/bin/ppm update
+
+export PATH=$PATH:$HOME/.local/bin
+ppm add 'https://github.com/maxcole/pdos-core.git'
+ppm update
+ppm install zsh
+# restart or start a new terminal session
 ```
+
+echo 'https://github.com/maxcole/pdos-core.git' >> $HOME/.config/ppm/sources.list
+$HOME/.local/bin/ppm update
 
 
 ### Commands
 
 ```bash
+ppm add REPO_URL # Add a package repository
 ppm install # Install one or more packages
 ppm list # List available packages
 ppm update # Update, i.e. clone, configured repositories
@@ -46,4 +52,4 @@ ppm update # Update, i.e. clone, configured repositories
 
 # Manual Dependencies
 
-- sudo priviledges
+- linux: sudo priviledges

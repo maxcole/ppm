@@ -34,6 +34,7 @@ echo -e "${CYAN}Personal Package Manager${NC}"
 XDG_BIN_DIR=$HOME/.local/bin
 XDG_CACHE_DIR=$HOME/.cache
 XDG_CONFIG_DIR=$HOME/.config
+XDG_LOCAL_SHARE_DIR=$HOME/.local/share
 
 # PPM directories and files
 PPM_BIN_FILE=$XDG_BIN_DIR/ppm
@@ -70,27 +71,12 @@ os() {
 
 
 ensure_deps_linux() {
-  if [ ! check_sudo ]; then
-    debug "ERROR!!"
-    debug ""
-    debug "enable sudo for this user"
-    exit 1
+  # Check if user has sudo ALL privileges without prompting
+  if sudo -n -l 2>/dev/null | grep -q "(ALL) ALL"; then
+    return
   fi
-}
-
-
-check_sudo() {
-  # Check if user has any sudo privileges without prompting
-  if ! sudo -n true 2>/dev/null; then
-    return 1
-  fi
-
-  # Check if user has sudo ALL privileges
-  if sudo -l 2>/dev/null | grep -q "(ALL) ALL"; then
-    return 0
-  else
-    return 1
-  fi
+  echo "enable sudo ALL for this user before continuing"
+  exit 1
 }
 
 
@@ -99,15 +85,13 @@ ensure_deps_macos() {
   if ! command -v brew >/dev/null 2>&1; then
     echo "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    # echo >> $HOME/.zprofile
-    # echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> $HOME/.zprofile
     eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
 }
 
 
 setup_ppm() {
-  mkdir -p $XDG_BIN_DIR $XDG_CACHE_DIR $XDG_CONFIG_DIR
+  mkdir -p $XDG_BIN_DIR $XDG_CACHE_DIR $XDG_CONFIG_DIR $XDG_LOCAL_SHARE_DIR
   if [ ! -f $PPM_BIN_FILE ]; then
     curl -o $PPM_BIN_FILE $PPM_BIN_URL
     chmod +x $PPM_BIN_FILE

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: update, list, install, remove"
+  echo "Available commands: add, update, list, install, remove"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -16,14 +16,13 @@ fi
 XDG_BIN_DIR=$HOME/.local/bin
 XDG_CACHE_DIR=$HOME/.cache
 XDG_CONFIG_DIR=$HOME/.config
+XDG_LOCAL_SHARE_DIR=$HOME/.local/share
 
 # PPM directories and files
 PPM_BIN_FILE="$0"
 PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
 PPM_CONFIG_DIR=$XDG_CONFIG_DIR/ppm
 PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
-
-echo $PPM_BIN_FILE
 
 
 # Install dependencies using the OS specific pacakge manager (apt or homebrew)
@@ -68,9 +67,37 @@ os() {
 }
 
 
+# Add a git repository URL to sources.list
+add() {
+  if [[ $# -eq 0 ]]; then
+    echo "Error: add requires a git URL"
+    echo "Usage: ppm add <git-url>"
+    exit 1
+  fi
+
+  local url="$1"
+
+  # Create config directory if it doesn't exist
+  mkdir -p "$PPM_CONFIG_DIR"
+
+  # Create sources.list if it doesn't exist
+  touch "$PPM_SOURCES_FILE"
+
+  # Check if URL already exists in sources.list
+  if grep -qxF "$url" "$PPM_SOURCES_FILE" 2>/dev/null; then
+    echo "Source already exists: $url"
+    return 0
+  fi
+
+  # Append URL to sources.list
+  echo "$url" >> "$PPM_SOURCES_FILE"
+  echo "Added source: $url"
+}
+
+
 collect_repos() {
   REPOS=()
-    
+
   # Read file into array, skipping empty lines and comments
   while IFS= read -r line || [ -n "$line" ]; do
     # Skip empty lines and comments
@@ -148,6 +175,13 @@ install() {
       [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
       $has_installer && source "$pkg_dir/install.sh"
 
+      if $has_installer; then
+        deps=$(dependencies)
+        for dep in $deps; do
+          "$0" "install" "$dep"
+        done
+      fi
+
       $has_installer && pre_install
 
       # Use stow to make softlinks into the user's home directory
@@ -204,7 +238,6 @@ remove() {
 }
 
 main() {
-  # source $PPM_CACHE_DIR/library.sh
   local command="$1"
   shift
 

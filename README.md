@@ -7,19 +7,27 @@
 - Verifies and installs core dependencies for MacOS (xcode, homebrew) and Debian Linux (sudo)
 - Installs package dependencies for MacOS and Debian Linux (curl, git, stow, wget)
 
+### Linux
 ```bash
 wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
-OR install manually
+#### Manual Installation
+- TODO: update README with code to use wget to just download the install script
+
+
+### MacOS
+```bash
+curl https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
+```
+
+#### Manual Installation
 
 ```bash
 curl -O https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh
 chmod +x ./install.sh
 ./install.sh
 ```
-
-- TODO: update README with code to use wget to just download the install script
 
 
 ## Install PDOS packages
@@ -33,11 +41,15 @@ ppm add 'https://github.com/maxcole/pdos-core.git'
 ppm update
 ppm install zsh
 # restart or start a new terminal session
+ppm list
+ppm install ruby
 ```
 
+#### Manual Installation of PDOS packages
+```bash
 echo 'https://github.com/maxcole/pdos-core.git' >> $HOME/.config/ppm/sources.list
-$HOME/.local/bin/ppm update
-
+ppm update
+```
 
 ### Commands
 

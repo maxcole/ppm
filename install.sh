@@ -81,6 +81,12 @@ ensure_deps_linux() {
 
 
 ensure_deps_macos() {
+  # Pre-authorize sudo at the start
+  if ! sudo -n true 2>/dev/null; then
+    echo "This script requires sudo access to install xcode. Please enter your password:"
+    sudo -v
+  fi
+
   # Check for Homebrew
   if ! command -v brew >/dev/null 2>&1; then
     echo "Installing Homebrew..."

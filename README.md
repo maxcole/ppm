@@ -40,6 +40,8 @@ ppm list              # List available packages
 ppm install [PACKAGE] # Install one or more packages
 ```
 
+After installing or updating a package run `zsrc` to load new or updated zsh aliases and functions contained in the package
+
 ## Manual Installation
 
 ### MacOS
@@ -61,7 +63,7 @@ chmod +x ./install.sh
 Add source (git repo with a packages subdir) to `$HOME/.config/ppm/sources.list`
 
 ```bash
-echo 'https://github.com/maxcole/pdos-core.git' >> $HOME/.config/ppm/sources.list
+echo 'https://github.com/maxcole/pdos-core' >> $HOME/.config/ppm/sources.list
 ppm update
 ppm list
 ppm install [PACKAGE]

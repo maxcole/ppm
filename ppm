@@ -174,6 +174,12 @@ list() {
   done
 }
 
+package_links() {
+  find "$pkg_dir" -type f | while read -r file; do
+    echo "$HOME/${file##*home/}" # Replace packages/$package/home with $HOME
+  done
+}
+
 
 # Install one or more packages as requested by the user
 install() {
@@ -207,7 +213,31 @@ install() {
           if type dependencies &>/dev/null; then
             deps=$(dependencies)
             for dep in $deps; do
-              "$0" "install" "$dep"
+              "$0" "install" "$force_flag" "$dep"
+            done
+          fi
+        )
+      fi
+
+      # If -f (force) was used then remove any possible existing symlinks first
+      if $force; then
+        links=$(package_links)
+        for link in $links; do
+          if [[ -L "$link" ]]; then
+            rm "$link"
+          fi
+        done
+      fi
+
+      # If installer has a paths function then create those directories
+      # followed by running the pre_install function if it is defined
+      if $has_installer; then
+        (
+          source "$pkg_dir/install.sh"
+          if type paths &>/dev/null; then
+            pkg_dirs=$(paths)
+            for dir in $pkg_dirs; do
+              mkdir -p $dir
             done
           fi
           if type pre_install &>/dev/null; then
@@ -219,6 +249,8 @@ install() {
       # Use stow to make softlinks into the user's home directory
       [[ -d $pkg_dir/home ]] && stow -d $pkg_dir -t $HOME home
 
+      # If the installer has an install_linux or install_mac function then run it
+      # followed by post_install if it exists
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
@@ -237,8 +269,6 @@ install() {
 
 
 # Remove one or more packages as requested by the user
-# TODO: Implement and test in ppm and packages; right now the only diff
-# between install and remove is the stow -D flag which removes existing symlinks
 remove() {
   collect_repos
 
@@ -276,6 +306,12 @@ remove() {
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
+          if type paths &>/dev/null; then
+            pkg_dirs=$(paths)
+            for dir in $pkg_dirs; do
+              rm -rf $dir
+            done
+          fi
           func_name="remove_$(os)" # remove_linux or remove_macos
           if type $func_name &>/dev/null; then
             $func_name
@@ -290,8 +326,10 @@ remove() {
 }
 
 main() {
-  local command="$1"
+  local command="$1" force=false force_flag=""
   shift
+
+  [[ "$1" == "-f" ]] && { force=true; force_flag="-f"; shift; }
 
   if declare -f "$command" > /dev/null; then
     "$command" "$@"

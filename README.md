@@ -35,6 +35,7 @@ ppm install [PACKAGE]
 ```bash
 ppm add [REPO_URL]    # Add a package repository
 ppm update            # Update (git clone/pull) package repositories
+ppm update ppm        # Update the ppm script to latest version
 ppm list              # List available packages
 ppm install [PACKAGE] # Install one or more packages
 ```

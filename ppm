@@ -14,6 +14,7 @@ fi
 
 # XDG directories
 XDG_BIN_DIR=$HOME/.local/bin
+XDG_CACHE_DIR=$HOME/.cache
 XDG_CONFIG_DIR=$HOME/.config
 XDG_LOCAL_SHARE_DIR=$HOME/.local/share
 
@@ -176,6 +177,7 @@ list() {
 
 # Install one or more packages as requested by the user
 install() {
+  mkdir -p $XDG_CONFIG_DIR/zsh
   collect_repos
 
   requested_packages=("$@")

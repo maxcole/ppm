@@ -196,24 +196,25 @@ install() {
 
       pkg_dir=$PPM_LOCAL_SHARE_DIR/$repo_name/packages/$pkg
 
-      # If the package name is not found then skip to the next
-      # , otherwise source install.sh if the package has it
+      # If the package name is not found in this repo then skip to the next repo
+      # otherwise set has_installer to true if the package has an install.sh script
       if [[ ! -d $pkg_dir ]]; then
-        echo "Install $repo_name/$pkg -- Not Found"
+        # echo "Install $repo_name/$pkg -- Not Found"
         continue
       else
         echo "Install $repo_name/$pkg"
         [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
       fi
 
-      # Check if the package has install.sh and source it
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
+          # If the package declares dependencies then spawn a subshell to install them first
           if type dependencies &>/dev/null; then
             deps=$(dependencies)
             for dep in $deps; do
-              "$0" "install" "$force_flag" "$dep"
+              # only pass config_flag and force_flag if they are non empty values
+              "$0" "install" ${config_flag:+"$config_flag"} ${force_flag:+"$force_flag"} "$dep"
             done
           fi
         )
@@ -240,7 +241,7 @@ install() {
               mkdir -p $dir
             done
           fi
-          if type pre_install &>/dev/null; then
+          if type pre_install &>/dev/null && [[ -z "$config_flag" ]]; then
             pre_install
           fi
         )
@@ -255,10 +256,10 @@ install() {
         (
           source "$pkg_dir/install.sh"
           func_name="install_$(os)" # install_linux or install_macos
-          if type $func_name &>/dev/null; then
+          if type $func_name &>/dev/null && [[ -z "$config_flag" ]]; then
             $func_name
           fi
-          if type post_install &>/dev/null; then
+          if type post_install &>/dev/null && [[ -z "$config_flag" ]]; then
             post_install
           fi
         )
@@ -326,9 +327,11 @@ remove() {
 }
 
 main() {
-  local command="$1" force=false force_flag=""
+  local command="$1" config=false config_flag="" force=false force_flag=""
   shift
 
+  # NOTE: Have to pass -c before -f b/c we are keeping it simple for now, i.e. not using getopt
+  [[ "$#" > 0 && "$1" == "-c" ]] && { config=true; config_flag="-c"; shift; }
   [[ "$#" > 0 && "$1" == "-f" ]] && { force=true; force_flag="-f"; shift; }
 
   if declare -f "$command" > /dev/null; then

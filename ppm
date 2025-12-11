@@ -329,7 +329,7 @@ main() {
   local command="$1" force=false force_flag=""
   shift
 
-  [[ "$1" == "-f" ]] && { force=true; force_flag="-f"; shift; }
+  [[ "$#" > 0 && "$1" == "-f" ]] && { force=true; force_flag="-f"; shift; }
 
   if declare -f "$command" > /dev/null; then
     "$command" "$@"

@@ -32,15 +32,14 @@ echo -e "${CYAN}Personal Package Manager${NC}"
 
 # XDG directories
 XDG_BIN_DIR=$HOME/.local/bin
-XDG_CACHE_DIR=$HOME/.cache
 XDG_CONFIG_DIR=$HOME/.config
 XDG_LOCAL_SHARE_DIR=$HOME/.local/share
 
 # PPM directories and files
 PPM_BIN_FILE=$XDG_BIN_DIR/ppm
 PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
-PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
 PPM_CONFIG_DIR=$XDG_CONFIG_DIR/ppm
+PPM_LOCAL_SHARE_DIR=$XDG_LOCAL_SHARE_DIR/ppm
 PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
 
 
@@ -95,12 +94,12 @@ ensure_deps_macos() {
 
 
 setup_ppm() {
-  mkdir -p $XDG_BIN_DIR $XDG_CACHE_DIR $XDG_CONFIG_DIR $XDG_LOCAL_SHARE_DIR
+  mkdir -p $XDG_BIN_DIR
   if [ ! -f $PPM_BIN_FILE ]; then
     curl -o $PPM_BIN_FILE $PPM_BIN_URL
     chmod +x $PPM_BIN_FILE
   fi
-  mkdir -p $PPM_CACHE_DIR $PPM_CONFIG_DIR
+  mkdir -p $PPM_LOCAL_SHARE_DIR $PPM_CONFIG_DIR
   touch $PPM_SOURCES_FILE
 }
 

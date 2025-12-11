@@ -14,14 +14,12 @@ fi
 
 # XDG directories
 XDG_BIN_DIR=$HOME/.local/bin
-XDG_CACHE_DIR=$HOME/.cache
 XDG_CONFIG_DIR=$HOME/.config
 XDG_LOCAL_SHARE_DIR=$HOME/.local/share
 
 # PPM directories and files
 PPM_BIN_FILE=$XDG_BIN_DIR/ppm
 PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
-PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
 PPM_CONFIG_DIR=$XDG_CONFIG_DIR/ppm
 PPM_LOCAL_SHARE_DIR=$XDG_LOCAL_SHARE_DIR/ppm
 PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
@@ -119,7 +117,7 @@ collect_packages() {
 
     while IFS= read -r dir; do
       PACKAGES+=("$repo_name/$(basename "$dir")")
-    done < <(ls -d $PPM_CACHE_DIR/$repo_name/packages/*/)
+    done < <(ls -d $PPM_LOCAL_SHARE_DIR/$repo_name/packages/*/)
   done
 }
 
@@ -132,7 +130,7 @@ update_self() {
   echo "ppm updated successfully"
 }
 
-# Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_CACHE_DIR
+# Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_LOCAL_SHARE_DIR
 update() {
   # Handle self-update
   if [[ $# -gt 0 && "$1" == "ppm" ]]; then
@@ -142,26 +140,26 @@ update() {
 
   collect_repos
 
-  # Iterate over repos and clone to $PPM_CACHE_DIR
+  # Iterate over repos and clone to $PPM_LOCAL_SHARE_DIR
   for repo in "${REPOS[@]}"; do
     # Extract repo name (everything after last / and before .git)
     local repo_name="${repo##*/}"      # Remove everything before last /
     repo_name="${repo_name%.git}"      # Remove .git extension
 
-    if [ ! -d $PPM_CACHE_DIR/$repo_name ]; then
+    if [ ! -d $PPM_LOCAL_SHARE_DIR/$repo_name ]; then
       echo "Cloning: $repo"
-      git clone $repo $PPM_CACHE_DIR/$repo_name
+      git clone $repo $PPM_LOCAL_SHARE_DIR/$repo_name
     else
       # Check for uncommitted changes or untracked files
-      if ! git -C "$PPM_CACHE_DIR/$repo_name" diff --quiet || \
-         ! git -C "$PPM_CACHE_DIR/$repo_name" diff --cached --quiet || \
-         [[ -n $(git -C "$PPM_CACHE_DIR/$repo_name" status --porcelain) ]]; then
+      if ! git -C "$PPM_LOCAL_SHARE_DIR/$repo_name" diff --quiet || \
+         ! git -C "$PPM_LOCAL_SHARE_DIR/$repo_name" diff --cached --quiet || \
+         [[ -n $(git -C "$PPM_LOCAL_SHARE_DIR/$repo_name" status --porcelain) ]]; then
         echo "Skipping $repo_name: has uncommitted changes. Please commit or stash them first."
         continue
       fi
 
       echo "Updating: $repo_name"
-      git -C "$PPM_CACHE_DIR/$repo_name" pull
+      git -C "$PPM_LOCAL_SHARE_DIR/$repo_name" pull
     fi
   done
 }
@@ -188,35 +186,49 @@ install() {
       local repo_name="${repo##*/}"      # Remove everything before last /
       repo_name="${repo_name%.git}"      # Remove .git extension
 
-      pkg_dir=$PPM_CACHE_DIR/$repo_name/packages/$pkg
+      pkg_dir=$PPM_LOCAL_SHARE_DIR/$repo_name/packages/$pkg
 
-      # If the package name is not found then skip to the next, otherwise source install.sh if the package has it
+      # If the package name is not found then skip to the next
+      # , otherwise source install.sh if the package has it
       if [[ ! -d $pkg_dir ]]; then
-        echo "Package not found in $repo_name: $pkg"
+        echo "Install $repo_name/$pkg -- Not Found"
         continue
+      else
+        echo "Install $repo_name/$pkg"
+        [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
       fi
 
       # Check if the package has install.sh and source it
-      [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
-      $has_installer && source "$pkg_dir/install.sh"
-
       if $has_installer; then
-        deps=$(dependencies)
-        for dep in $deps; do
-          "$0" "install" "$dep"
-        done
+        (
+          source "$pkg_dir/install.sh"
+          if type dependencies &>/dev/null; then
+            deps=$(dependencies)
+            for dep in $deps; do
+              "$0" "install" "$dep"
+            done
+          fi
+          if type pre_install &>/dev/null; then
+            pre_install
+          fi
+        )
       fi
-
-      $has_installer && pre_install
 
       # Use stow to make softlinks into the user's home directory
       [[ -d $pkg_dir/home ]] && stow -d $pkg_dir -t $HOME home
 
-      # invoke install_linux or install_macos
-      func_name="install_$(os)"
-      $has_installer && $func_name
-
-      $has_installer && post_install || true
+      if $has_installer; then
+        (
+          source "$pkg_dir/install.sh"
+          func_name="install_$(os)" # install_linux or install_macos
+          if type $func_name &>/dev/null; then
+            $func_name
+          fi
+          if type post_remove &>/dev/null; then
+            post_install
+          fi
+        )
+      fi
     done
   done
 }
@@ -236,28 +248,41 @@ remove() {
       local repo_name="${repo##*/}"      # Remove everything before last /
       repo_name="${repo_name%.git}"      # Remove .git extension
 
-      pkg_dir=$PPM_CACHE_DIR/$repo_name/packages/$pkg
+      pkg_dir=$PPM_LOCAL_SHARE_DIR/$repo_name/packages/$pkg
 
-      # If the package name is not found then skip to the next, otherwise source install.sh if the package has it
+      # If the package name is not found then skip to the next
       if [[ ! -d $pkg_dir ]]; then
-        echo "Package not found in $repo_name: $pkg"
+        echo "Remove $repo_name/$pkg -- Not Found"
         continue
+      else
+        echo "Remove $repo_name/$pkg"
+        [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
       fi
 
-      # Check if the package has install.sh and source it
-      [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
-      $has_installer && source "$pkg_dir/install.sh"
-
-      $has_installer && remove
+      if $has_installer; then
+        (
+          source "$pkg_dir/install.sh"
+          if type pre_remove &>/dev/null; then
+            pre_remove
+          fi
+        )
+      fi
 
       # Use stow to remove softlinks from the user's home directory
       [[ -d $pkg_dir/home ]] && stow -D -d $pkg_dir -t $HOME home
 
-      # invoke remove_linux or remove_macos
-      func_name="remove_$(os)"
-      $has_installer && $func_name
-
-      # $has_installer && post_install
+      if $has_installer; then
+        (
+          source "$pkg_dir/install.sh"
+          func_name="remove_$(os)" # remove_linux or remove_macos
+          if type $func_name &>/dev/null; then
+            $func_name
+          fi
+          if type post_remove &>/dev/null; then
+            post_remove
+          fi
+        )
+      fi
     done
   done
 }

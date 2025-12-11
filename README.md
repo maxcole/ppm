@@ -22,7 +22,7 @@ wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.
 ### PDOS packages
 ```bash
 export PATH=$PATH:$HOME/.local/bin
-ppm add 'https://github.com/maxcole/pdos-core.git'
+ppm add https://github.com/maxcole/pdos-core
 ppm update
 ppm install zsh
 # Start a new terminal session (ppm will be on the $PATH after restart)

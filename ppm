@@ -224,7 +224,7 @@ install() {
           if type $func_name &>/dev/null; then
             $func_name
           fi
-          if type post_remove &>/dev/null; then
+          if type post_install &>/dev/null; then
             post_install
           fi
         )

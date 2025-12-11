@@ -21,11 +21,12 @@ wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.
 
 ### PDOS packages
 ```bash
+eval "$(/opt/homebrew/bin/brew shellenv)"
 export PATH=$PATH:$HOME/.local/bin
 ppm add https://github.com/maxcole/pdos-core
 ppm update
 ppm install zsh
-# Start a new terminal session (ppm will be on the $PATH after restart)
+# Start a new terminal session (ppm and homebrew will be on the $PATH after restart)
 ppm list
 ppm install [PACKAGE]
 ```
@@ -33,8 +34,8 @@ ppm install [PACKAGE]
 ## Commands
 ```bash
 ppm add [REPO_URL]    # Add a package repository
-ppm update            # Update, i.e. clone, configured repositories
-ppm list              # Lists the available packages
+ppm update            # Update (git clone/pull) package repositories
+ppm list              # List available packages
 ppm install [PACKAGE] # Install one or more packages
 ```
 

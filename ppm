@@ -19,9 +19,11 @@ XDG_CONFIG_DIR=$HOME/.config
 XDG_LOCAL_SHARE_DIR=$HOME/.local/share
 
 # PPM directories and files
-PPM_BIN_FILE="$0"
+PPM_BIN_FILE=$XDG_BIN_DIR/ppm
+PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
 PPM_CACHE_DIR=$XDG_CACHE_DIR/ppm
 PPM_CONFIG_DIR=$XDG_CONFIG_DIR/ppm
+PPM_LOCAL_SHARE_DIR=$XDG_LOCAL_SHARE_DIR/ppm
 PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
 
 
@@ -122,8 +124,22 @@ collect_packages() {
 }
 
 
+# Update ppm itself by downloading from the source URL
+update_self() {
+  echo "Updating ppm..."
+  curl -fsSL -o "$PPM_BIN_FILE" "$PPM_BIN_URL"
+  chmod +x "$PPM_BIN_FILE"
+  echo "ppm updated successfully"
+}
+
 # Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_CACHE_DIR
 update() {
+  # Handle self-update
+  if [[ $# -gt 0 && "$1" == "ppm" ]]; then
+    update_self
+    return
+  fi
+
   collect_repos
 
   # Iterate over repos and clone to $PPM_CACHE_DIR
@@ -131,12 +147,21 @@ update() {
     # Extract repo name (everything after last / and before .git)
     local repo_name="${repo##*/}"      # Remove everything before last /
     repo_name="${repo_name%.git}"      # Remove .git extension
-        
+
     if [ ! -d $PPM_CACHE_DIR/$repo_name ]; then
       echo "Cloning: $repo"
       git clone $repo $PPM_CACHE_DIR/$repo_name
     else
-      echo "Skipping existing repo: $repo"
+      # Check for uncommitted changes or untracked files
+      if ! git -C "$PPM_CACHE_DIR/$repo_name" diff --quiet || \
+         ! git -C "$PPM_CACHE_DIR/$repo_name" diff --cached --quiet || \
+         [[ -n $(git -C "$PPM_CACHE_DIR/$repo_name" status --porcelain) ]]; then
+        echo "Skipping $repo_name: has uncommitted changes. Please commit or stash them first."
+        continue
+      fi
+
+      echo "Updating: $repo_name"
+      git -C "$PPM_CACHE_DIR/$repo_name" pull
     fi
   done
 }

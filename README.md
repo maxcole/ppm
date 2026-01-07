@@ -68,3 +68,7 @@ ppm update
 ppm list
 ppm install [PACKAGE]
 ```
+
+
+## Precedence
+If a package has multiple repo sources the first repo to write a specific file takes priority. If a subsequent repo contains the same file it will be ignored

@@ -43,18 +43,6 @@ PPM_LOCAL_SHARE_DIR=$XDG_LOCAL_SHARE_DIR/ppm
 PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
 
 
-# Ensure dependencies
-ensure_deps() {
-  if [[ "$(os)" == "linux" ]]; then
-    ensure_deps_linux
-    sudo apt install curl git stow -y
-  elif [[ "$(os)" == "macos" ]]; then
-    ensure_deps_macos
-    brew install git stow wget
-  fi
-}
-
-
 # Detect the OS
 os() {
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -89,6 +77,18 @@ ensure_deps_macos() {
     echo "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     eval "$(/opt/homebrew/bin/brew shellenv)"
+  fi
+}
+
+
+# Ensure dependencies
+ensure_deps() {
+  if [[ "$(os)" == "linux" ]]; then
+    ensure_deps_linux
+    sudo apt install curl git stow -y
+  elif [[ "$(os)" == "macos" ]]; then
+    ensure_deps_macos
+    brew install git stow wget
   fi
 }
 

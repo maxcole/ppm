@@ -174,20 +174,25 @@ list() {
   done
 }
 
-package_links() {
+rm_package_links() {
   find "$pkg_dir" -type f | while read -r file; do
     echo "$HOME/${file##*home/}" # Replace packages/$package/home with $HOME
   done
 }
 
+package_links() {
+  find "$pkg_dir" -type f | while read -r file; do
+    echo "${file#*/home/}"
+  done
+}
 
 # Install one or more packages as requested by the user
 install() {
-  mkdir -p $XDG_CONFIG_DIR/zsh
   collect_repos
 
   requested_packages=("$@")
   for pkg in "${requested_packages[@]}"; do
+    local ignore_files=() ignore_arg=""
 
     for repo in "${REPOS[@]}"; do
       # Extract repo name (everything after last / and before .git)
@@ -222,7 +227,7 @@ install() {
 
       # If -f (force) was used then remove any possible existing symlinks first
       if $force; then
-        links=$(package_links)
+        links=$(rm_package_links)
         for link in $links; do
           if [[ -L "$link" ]]; then
             rm "$link"
@@ -248,7 +253,13 @@ install() {
       fi
 
       # Use stow to make softlinks into the user's home directory
-      [[ -d $pkg_dir/home ]] && stow -d $pkg_dir -t $HOME home
+      if [[ -d $pkg_dir/home ]]; then
+        if [[ ${#ignore_files[@]} -gt 0 ]]; then
+          ignore_arg="--ignore $ignore_files"
+        fi
+        stow --no-folding $ignore_arg -d $pkg_dir -t $HOME home
+        ignore_files+=$(package_links)
+      fi
 
       # If the installer has an install_linux or install_mac function then run it
       # followed by post_install if it exists

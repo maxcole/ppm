@@ -19,11 +19,11 @@ curl https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | 
 wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
-### PDOS packages
+### Add Personal Development Environment (PDE) packages
 ```bash
 eval "$(/opt/homebrew/bin/brew shellenv)"
 export PATH=$PATH:$HOME/.local/bin
-ppm add https://github.com/maxcole/pdos-core
+ppm add https://github.com/maxcole/pde-ppm
 ppm update
 ppm install zsh
 # Start a new terminal session (ppm and homebrew will be on the $PATH after restart)
@@ -58,12 +58,12 @@ chmod +x ./install.sh
 ./install.sh
 ```
 
-### PDOS packages
+### PDE packages
 
 Add source (git repo with a packages subdir) to `$HOME/.config/ppm/sources.list`
 
 ```bash
-echo 'https://github.com/maxcole/pdos-core' >> $HOME/.config/ppm/sources.list
+echo 'https://github.com/maxcole/pde-ppm' >> $HOME/.config/ppm/sources.list
 ppm update
 ppm list
 ppm install [PACKAGE]

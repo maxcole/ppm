@@ -179,8 +179,8 @@ list() {
 }
 
 package_links() {
-  find "$pkg_dir" -type f | while read -r file; do
-    echo "${file#*/home/}"
+  find "$package_dir/home" -type f | while read -r file; do
+    echo "${file#$package_dir/home/}"
   done
 }
 
@@ -194,8 +194,8 @@ install() {
 
 installer() {
   collect_repos
-
   requested_packages=("$@")
+
   for pkg in "${requested_packages[@]}"; do
     local ignore_args=()
 
@@ -204,21 +204,27 @@ installer() {
       local repo_name="${repo##*/}"      # Remove everything before last /
       repo_name="${repo_name%.git}"      # Remove .git extension
 
-      pkg_dir=$PPM_LOCAL_SHARE_DIR/$repo_name/packages/$pkg
+      # If the requested package is from a specific repo, i.e. `ppm install repo/pkg`
+      if [[ "$pkg" == */* && "$repo_name" != "${pkg%/*}" ]]; then
+        continue
+      fi
+
+      package_name="${pkg#*/}"
+      package_dir=$PPM_LOCAL_SHARE_DIR/$repo_name/packages/$package_name
 
       # If the package name is not found in this repo then skip to the next, otherwise
       # set has_installer to true or false based on if the package has an install.sh script or not
-      if [[ ! -d $pkg_dir ]]; then
+      if [[ ! -d $package_dir ]]; then
         continue
       else
-        echo "Install $repo_name/$pkg"
-        [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
+        echo "Install $repo_name/$package_name"
+        [[ -f "$package_dir/install.sh" ]] && has_installer=true || has_installer=false
       fi
 
+      # If the package declares dependencies then spawn a subshell to install them first
       if $has_installer; then
         (
-          source "$pkg_dir/install.sh"
-          # If the package declares dependencies then spawn a subshell to install them first
+          source "$package_dir/install.sh"
           if type dependencies &>/dev/null; then
             deps=$(dependencies)
             for dep in $deps; do
@@ -243,7 +249,7 @@ installer() {
       # followed by running the pre_install function if it is defined
       if $has_installer; then
         (
-          source "$pkg_dir/install.sh"
+          source "$package_dir/install.sh"
           # if type paths &>/dev/null; then
           #   pkg_dirs=$(paths)
           #   for dir in $pkg_dirs; do
@@ -257,8 +263,8 @@ installer() {
       fi
 
       # Use stow to make softlinks into the user's home directory
-      if [[ -d $pkg_dir/home ]]; then
-        stow --no-folding ${ignore_args[@]+"${ignore_args[@]}"} -d $pkg_dir -t $HOME home
+      if [[ -d $package_dir/home ]]; then
+        stow --no-folding ${ignore_args[@]+"${ignore_args[@]}"} -d $package_dir -t $HOME home
         # Collect files to ignore for lower-priority repos
         while IFS= read -r file; do
           if [[ -n "$file" ]]; then
@@ -274,11 +280,22 @@ installer() {
       # followed by post_install if it exists
       if $has_installer; then
         (
-          source "$pkg_dir/install.sh"
+          source "$package_dir/install.sh"
+          if type "space_path" &>/dev/null && [[ -d $package_dir/space  ]]; then
+            mkdir -p $(space_path)
+            stow --no-folding -d $package_dir -t $(space_path) space
+            if type "space_install" &>/dev/null; then
+              pushd $(space_path) > /dev/null
+              space_install
+              popd > /dev/null
+            fi
+          fi
+
           func_name="install_$(os)" # install_linux or install_macos
           if type $func_name &>/dev/null && [[ -z "$config_flag" ]]; then
             $func_name
           fi
+
           if type post_install &>/dev/null && [[ -z "$config_flag" ]]; then
             post_install
           fi

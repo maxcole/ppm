@@ -281,15 +281,6 @@ installer() {
       if $has_installer; then
         (
           source "$package_dir/install.sh"
-          if type "space_path" &>/dev/null && [[ -d $package_dir/space  ]]; then
-            mkdir -p $(space_path)
-            stow --no-folding -d $package_dir -t $(space_path) space
-            if type "space_install" &>/dev/null; then
-              pushd $(space_path) > /dev/null
-              space_install
-              popd > /dev/null
-            fi
-          fi
 
           func_name="install_$(os)" # install_linux or install_macos
           if type $func_name &>/dev/null && [[ -z "$config_flag" ]]; then
@@ -298,6 +289,18 @@ installer() {
 
           if type post_install &>/dev/null && [[ -z "$config_flag" ]]; then
             post_install
+          fi
+
+          if type "space_path" &>/dev/null; then
+            mkdir -p $(space_path)
+            if [[ -d $package_dir/space  ]]; then
+              stow --no-folding -d $package_dir -t $(space_path) space
+            fi
+            if type "space_install" &>/dev/null; then
+              pushd $(space_path) > /dev/null
+              space_install
+              popd > /dev/null
+            fi
           fi
         )
       fi

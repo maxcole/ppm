@@ -1,0 +1,18 @@
+ppm:
+  url: git@github.com:maxcole/dev-ppm
+  path: ppm-repos:ppm
+ppm/pde:
+  url: git@github.com:maxcole/pde-ppm
+  path: ppm-repos:pde-ppm
+ppm/pdt:
+  url: git@github.com:maxcole/pdt-ppm
+  path: ppm-repos:pdt-ppm
+# rjayroach/ppm:
+#   url: git@github.com:maxcole/rjayroach-ppm
+#   path: ppm-repos:rjayroach-ppm
+# pdos/woden:
+#   url: git@github.com:maxcole/woden
+#   path: ~/spaces/pdos/code/repos/woden
+# pdos/woden-spike:
+#   url: git@github.com:maxcole/woden-spike
+#   path: ~/spaces/pdos/code/repos/woden-spike

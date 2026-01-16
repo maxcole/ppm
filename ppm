@@ -11,22 +11,24 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
+BIN_DIR=$HOME/.local/bin
 
 # XDG directories
-XDG_BIN_DIR=$HOME/.local/bin
-XDG_CACHE_DIR=$HOME/.cache
-XDG_CONFIG_DIR=$HOME/.config
-XDG_LOCAL_SHARE_DIR=$HOME/.local/share
+XDG_CACHE_HOME=$HOME/.cache
+XDG_CONFIG_HOME=$HOME/.config
+XDG_DATA_HOME=$HOME/.local/share
 
-# PPM directories and files
-PPM_BIN_FILE=$XDG_BIN_DIR/ppm
+# PPM directories
+PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
+PPM_DATA_HOME=$XDG_DATA_HOME/ppm
+
+# PPM files
+PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
-PPM_CONFIG_DIR=$XDG_CONFIG_DIR/ppm
-PPM_LOCAL_SHARE_DIR=$XDG_LOCAL_SHARE_DIR/ppm
-PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
+PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
 
-# Install dependencies using the OS specific pacakge manager (apt or homebrew)
+# Install dependencies using the OS specific package manager (apt or homebrew)
 install_dep() {
   for dep in "$@"; do
     if [[ "$(os)" == "linux" ]]; then
@@ -79,7 +81,7 @@ add() {
   local url="$1"
 
   # Create config directory if it doesn't exist
-  mkdir -p "$PPM_CONFIG_DIR"
+  mkdir -p "$PPM_CONFIG_HOME"
 
   # Create sources.list if it doesn't exist
   touch "$PPM_SOURCES_FILE"
@@ -118,7 +120,7 @@ collect_packages() {
 
     while IFS= read -r dir; do
       PACKAGES+=("$repo_name/$(basename "$dir")")
-    done < <(ls -d $PPM_LOCAL_SHARE_DIR/$repo_name/packages/*/)
+    done < <(ls -d $PPM_DATA_HOME/$repo_name/packages/*/)
   done
 }
 
@@ -131,7 +133,7 @@ update_self() {
   echo "ppm updated successfully"
 }
 
-# Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_LOCAL_SHARE_DIR
+# Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_DATA_HOME
 update() {
   # Handle self-update
   if [[ $# -gt 0 && "$1" == "ppm" ]]; then
@@ -141,26 +143,26 @@ update() {
 
   collect_repos
 
-  # Iterate over repos and clone to $PPM_LOCAL_SHARE_DIR
+  # Iterate over repos and clone to $PPM_DATA_HOME
   for repo in "${REPOS[@]}"; do
     # Extract repo name (everything after last / and before .git)
     local repo_name="${repo##*/}"      # Remove everything before last /
     repo_name="${repo_name%.git}"      # Remove .git extension
 
-    if [ ! -d $PPM_LOCAL_SHARE_DIR/$repo_name ]; then
+    if [ ! -d $PPM_DATA_HOME/$repo_name ]; then
       echo "Cloning: $repo"
-      git clone $repo $PPM_LOCAL_SHARE_DIR/$repo_name
+      git clone $repo $PPM_DATA_HOME/$repo_name
     else
       # Check for uncommitted changes or untracked files
-      if ! git -C "$PPM_LOCAL_SHARE_DIR/$repo_name" diff --quiet || \
-         ! git -C "$PPM_LOCAL_SHARE_DIR/$repo_name" diff --cached --quiet || \
-         [[ -n $(git -C "$PPM_LOCAL_SHARE_DIR/$repo_name" status --porcelain) ]]; then
+      if ! git -C "$PPM_DATA_HOME/$repo_name" diff --quiet || \
+         ! git -C "$PPM_DATA_HOME/$repo_name" diff --cached --quiet || \
+         [[ -n $(git -C "$PPM_DATA_HOME/$repo_name" status --porcelain) ]]; then
         echo "Skipping $repo_name: has uncommitted changes. Please commit or stash them first."
         continue
       fi
 
       echo "Updating: $repo_name"
-      git -C "$PPM_LOCAL_SHARE_DIR/$repo_name" pull
+      git -C "$PPM_DATA_HOME/$repo_name" pull
     fi
   done
 }
@@ -210,7 +212,7 @@ installer() {
       fi
 
       package_name="${pkg#*/}"
-      package_dir=$PPM_LOCAL_SHARE_DIR/$repo_name/packages/$package_name
+      package_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
 
       # If the package name is not found in this repo then skip to the next, otherwise
       # set has_installer to true or false based on if the package has an install.sh script or not
@@ -294,7 +296,8 @@ installer() {
           if type "space_path" &>/dev/null; then
             mkdir -p $(space_path)
             if [[ -d $package_dir/space  ]]; then
-              stow --no-folding -d $package_dir -t $(space_path) space
+              # stow --no-folding -d $package_dir -t $(space_path) space
+              stow -d $package_dir -t $(space_path) space
             fi
             if type "space_install" &>/dev/null; then
               pushd $(space_path) > /dev/null
@@ -321,7 +324,7 @@ remove() {
       local repo_name="${repo##*/}"      # Remove everything before last /
       repo_name="${repo_name%.git}"      # Remove .git extension
 
-      pkg_dir=$PPM_LOCAL_SHARE_DIR/$repo_name/packages/$pkg
+      pkg_dir=$PPM_DATA_HOME/$repo_name/packages/$pkg
 
       # If the package name is not found then skip to the next
       if [[ ! -d $pkg_dir ]]; then

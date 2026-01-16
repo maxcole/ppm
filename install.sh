@@ -27,20 +27,23 @@ echo -e "${CYAN}Personal Package Manager${NC}"
 # all: packages: curl, wget, stow, etc
 # linux: passwordless sudo
 # mac: xcode and brew with permissions
-# 2. download the ppm script to XDG_BIN_DIR
-# 3. create PPM_CACHE_DIR and PPM_SOURCES_FILE
+# 2. download the ppm script to BIN_DIR
+# 3. create PPM_CACHE_HOME and PPM_SOURCES_FILE
+
+BIN_DIR=$HOME/.local/bin
 
 # XDG directories
-XDG_BIN_DIR=$HOME/.local/bin
-XDG_CONFIG_DIR=$HOME/.config
-XDG_LOCAL_SHARE_DIR=$HOME/.local/share
+XDG_CONFIG_HOME=$HOME/.config
+XDG_DATA_HOME=$HOME/.local/share
 
-# PPM directories and files
-PPM_BIN_FILE=$XDG_BIN_DIR/ppm
+# PPM directories
+PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
+PPM_DATA_HOME=$XDG_DATA_HOME/ppm
+
+# PPM files
+PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
-PPM_CONFIG_DIR=$XDG_CONFIG_DIR/ppm
-PPM_LOCAL_SHARE_DIR=$XDG_LOCAL_SHARE_DIR/ppm
-PPM_SOURCES_FILE=$PPM_CONFIG_DIR/sources.list
+PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
 
 # Detect the OS
@@ -94,12 +97,12 @@ ensure_deps() {
 
 
 setup_ppm() {
-  mkdir -p $XDG_BIN_DIR
+  mkdir -p $BIN_DIR
   if [ ! -f $PPM_BIN_FILE ]; then
     curl -o $PPM_BIN_FILE $PPM_BIN_URL
     chmod +x $PPM_BIN_FILE
   fi
-  mkdir -p $PPM_LOCAL_SHARE_DIR $PPM_CONFIG_DIR
+  mkdir -p $PPM_DATA_HOME $PPM_CONFIG_HOME
   touch $PPM_SOURCES_FILE
 }
 

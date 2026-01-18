@@ -48,10 +48,13 @@ EOF
 echo -e "${CYAN}Personal Package Manager${NC}"
 
 BIN_DIR=$HOME/.local/bin
+
 XDG_CONFIG_HOME=$HOME/.config
 XDG_DATA_HOME=$HOME/.local/share
+
 PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
 PPM_DATA_HOME=$XDG_DATA_HOME/ppm
+
 PPM_BASE_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main
 PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_CONFIG_FILE=$PPM_CONFIG_HOME/ppm.conf
@@ -95,7 +98,6 @@ setup_deps_macos() {
   if ! command -v brew >/dev/null 2>&1; then
     echo "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
 }
 

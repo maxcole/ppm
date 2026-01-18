@@ -1,16 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
+#
+# PPM Install Script
+#
+# WHAT THIS SCRIPT DOES:
+#   1. Installs dependencies via apt (Linux) or Homebrew (macOS)
+#   2. Downloads the ppm script to ~/.local/bin/ppm
+#   3. Clones your repo (if --repo provided) to ~/.local/share/ppm/<repo-name>
+#   4. Creates config files (ppm.conf, sources.list) in your repo's ppm package
+#   5. Symlinks config files to ~/.config/ppm/
+#   6. Runs 'ppm update' and 'ppm install' for specified packages
+#
+# FILES CREATED:
+#   ~/.local/bin/ppm                 - the ppm executable
+#   ~/.config/ppm/ppm.conf           - symlink to repo config
+#   ~/.config/ppm/sources.list       - symlink to repo sources
+#   ~/.local/share/ppm/<repo>/       - cloned repo (if --repo provided)
+#
+# EXTERNAL FETCHES:
+#   https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
+#   https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm.conf
+#   https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/sources.list
+#   https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh (macOS only)
+#
+# SUDO USAGE:
+#   Linux: requires passwordless sudo for apt install
+#   macOS: prompts for sudo to install Xcode CLI tools
+#
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# ASCII Art Banner
 echo -e "${CYAN}"
 cat << "EOF"
  ____  ____  __  __
@@ -22,32 +47,17 @@ cat << "EOF"
 EOF
 echo -e "${CYAN}Personal Package Manager${NC}"
 
-# The purpose of this file is to:
-# 1. check that the dependencies are met
-# all: packages: curl, wget, stow, etc
-# linux: passwordless sudo
-# mac: xcode and brew with permissions
-# 2. download the ppm script to BIN_DIR
-# 3. create PPM_CACHE_HOME and PPM_SOURCES_FILE
-
 BIN_DIR=$HOME/.local/bin
-
-# XDG directories
 XDG_CONFIG_HOME=$HOME/.config
 XDG_DATA_HOME=$HOME/.local/share
-
-# PPM directories
 PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
 PPM_DATA_HOME=$XDG_DATA_HOME/ppm
-
-# PPM files
 PPM_BASE_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main
 PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_CONFIG_FILE=$PPM_CONFIG_HOME/ppm.conf
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
 
-# Detect the OS
 os() {
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     echo "linux"
@@ -59,7 +69,6 @@ os() {
 }
 
 
-# Setup dependencies
 setup_deps() {
   if [[ "$(os)" == "linux" ]]; then
     setup_deps_linux
@@ -72,23 +81,17 @@ setup_deps() {
 
 
 setup_deps_linux() {
-  # Check if user has sudo ALL privileges without prompting
-  if sudo -n -l 2>/dev/null | grep -q "(ALL) ALL"; then
-    return
-  fi
+  if sudo -n -l 2>/dev/null | grep -q "(ALL) ALL"; then return; fi
   echo "enable sudo ALL for this user before continuing"
   exit 1
 }
 
 
 setup_deps_macos() {
-  # Pre-authorize sudo at the start
   if ! sudo -n true 2>/dev/null; then
     echo "This script requires sudo access to install xcode. Please enter your password:"
     sudo -v
   fi
-
-  # Check for Homebrew
   if ! command -v brew >/dev/null 2>&1; then
     echo "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -186,12 +189,9 @@ if [[ "$script_only" == true ]]; then
   exit 0
 fi
 
-# Use PPM_INSTALL_PACKAGES if no packages specified on command line
 if [[ ${#packages[@]} -eq 0 && -n "${PPM_INSTALL_PACKAGES:-}" ]]; then
   IFS=' ' read -ra packages <<< "$PPM_INSTALL_PACKAGES"
 fi
-
-# Default to zsh if no packages specified
 if [[ ${#packages[@]} -eq 0 ]]; then
   packages=(zsh)
 fi

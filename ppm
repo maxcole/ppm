@@ -19,30 +19,71 @@ XDG_CONFIG_HOME=$HOME/.config
 XDG_DATA_HOME=$HOME/.local/share
 
 # PPM directories
+PPM_CACHE_HOME=$XDG_CACHE_HOME/ppm
 PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
 PPM_DATA_HOME=$XDG_DATA_HOME/ppm
 
 # PPM files
 PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
+PPM_CONFIG_FILE="$PPM_CONFIG_HOME/ppm.conf"
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
+
+
+# Read the PPM config file then export all vars
+init_ppm_config() {
+  if [[ ! -f "$PPM_CONFIG_FILE" ]]; then
+    mkdir -p "$PPM_CONFIG_HOME"
+    write_ppm_default_config
+  fi
+  set -a
+  source $PPM_CONFIG_FILE
+  set +a
+}
+
+
+# Initialize PPM config file with defaults if it doesn't exist
+write_ppm_default_config() {
+  cat > "$PPM_CONFIG_FILE" << 'EOF'
+# PPM Configuration File
+
+# Manage Homebrew behavior on macOS
+HOMEBREW_NO_AUTO_UPDATE=1
+HOMEBREW_NO_ENV_HINTS=1
+
+# Duration in seconds between brew formula updates (default: 24 hours)
+HOMEBREW_UPDATE_CACHE_DURATION=86400
+
+EOF
+}
+
+
+# Update the homebrew cache periodically
+update_brew_if_needed() {
+  local cache_duration="${HOMEBREW_UPDATE_CACHE_DURATION:-86400}" # default is 24 hours in seconds
+  local cache_file="$PPM_CACHE_HOME/brew_last_update"
+
+  if [[ ! -f "$cache_file" ]] || [[ $(($(date +%s) - $(cat "$cache_file"))) -gt $cache_duration ]]; then
+    [[ ! -d $PPM_CACHE_HOME ]] && mkdir -p $PPM_CACHE_HOME
+    brew update
+    date +%s > "$cache_file"
+  fi
+}
 
 
 # Install dependencies using the OS specific package manager (apt or homebrew)
 install_dep() {
-  for dep in "$@"; do
-    if [[ "$(os)" == "linux" ]]; then
-      sudo apt install $dep -y
-    elif [[ "$(os)" == "macos" ]]; then
+  if [[ "$(os)" == "linux" ]]; then
+    sudo apt install "$@" -y
+  elif [[ "$(os)" == "macos" ]]; then
+    for dep in "$@"; do
       if ! brew list "$dep" &>/dev/null; then
-        brew install $dep
-      elif brew outdated | grep -q "^$dep"; then
+        brew install "$dep"
+      elif brew outdated --quiet | grep -q "^${dep}$"; then
         brew upgrade "$dep"
-      else
-        echo "$dep is installed and up-to-date"
       fi
-    fi
-  done
+    done
+  fi
 }
 
 
@@ -188,6 +229,7 @@ package_links() {
 
 # Install one or more packages as requested by the user
 install() {
+  [[ "$(os)" == "macos" ]] && update_brew_if_needed
   if $force; then
     remove "$@"
   fi
@@ -372,6 +414,7 @@ main() {
     echo "ERROR: Missing $PPM_SOURCES_FILE"
     exit 1
   fi
+  init_ppm_config
 
   local command="$1" config=false config_flag="" force=false force_flag=""
   shift

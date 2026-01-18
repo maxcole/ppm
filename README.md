@@ -53,6 +53,12 @@ See each repo's README for available packages.
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- git@github.com:user/my-ppm
 ```
 
+Alternatively, set `PPM_REPO_URL` in your environment:
+```bash
+export PPM_REPO_URL=git@github.com:user/my-ppm
+curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
+```
+
 **Precedence**: When a package exists in multiple repos, the first repo in sources.list wins. Files already written by a higher-priority repo are skipped.
 
 **Updates**: `ppm update` skips repos with uncommitted changes to protect local modifications. Commit or stash to receive updates.

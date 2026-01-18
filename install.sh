@@ -98,7 +98,7 @@ setup_deps_macos() {
 
 
 install() {
-  local repo_url="${1:-}" user_id=$(whoami)
+  local repo_url="${1:-}" user_id=$(whoami)-ppm
 
   if [[ -n "$repo_url" ]]; then
     user_id=$(basename "$repo_url" .git)
@@ -165,13 +165,15 @@ install_zsh() {
 }
 
 
-case "${1:-}" in
+repo_url="${1:-${PPM_REPO_URL:-}}"
+
+case "$repo_url" in
   --script-only)
     install_script
     ;;
   git@*|https://*)
     setup_deps
-    install "$1"
+    install "$repo_url"
     ;;
   *)
     setup_deps

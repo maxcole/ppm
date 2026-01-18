@@ -112,8 +112,19 @@ install() {
   fi
   mkdir -p "$repo_config_dir"
 
-  install_config
   install_script
+  install_config
+  $PPM_BIN_FILE update
+}
+
+
+install_script() {
+  mkdir -p $BIN_DIR
+  if [ ! -f $PPM_BIN_FILE ]; then
+    curl -fsSL "$PPM_BASE_URL/ppm" -o $PPM_BIN_FILE
+    chmod +x $PPM_BIN_FILE
+  fi
+  mkdir -p $PPM_DATA_HOME $PPM_CONFIG_HOME
 }
 
 
@@ -143,22 +154,11 @@ install_config() {
 }
 
 
-install_script() {
-  mkdir -p $BIN_DIR
-  if [ ! -f $PPM_BIN_FILE ]; then
-    curl -fsSL "$PPM_BASE_URL/ppm" -o $PPM_BIN_FILE
-    chmod +x $PPM_BIN_FILE
-  fi
-  mkdir -p $PPM_DATA_HOME $PPM_CONFIG_HOME
-}
-
-
 install_packages() {
   local packages=("$@")
   if [[ "$(os)" == "macos" ]]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
-  $PPM_BIN_FILE update
   for pkg in "${packages[@]}"; do
     $PPM_BIN_FILE install "$pkg"
   done

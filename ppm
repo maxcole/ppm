@@ -369,6 +369,11 @@ remove() {
 }
 
 main() {
+  if [[ ! -f $PPM_SOURCES_FILE ]]; then
+    echo "ERROR: Missing $PPM_SOURCES_FILE"
+    exit 1
+  fi
+
   local command="$1" config=false config_flag="" force=false force_flag=""
   shift
 

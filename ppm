@@ -199,29 +199,24 @@ installer() {
   requested_packages=("$@")
 
   for pkg in "${requested_packages[@]}"; do
-    local ignore_args=()
+    local package_repo=$(dirname "$pkg") package_name=$(basename "$pkg") ignore_args=()
+    # Is the package requested from a specific repo (ppm install repo/pkg)
+    [[ "$pkg" == */* ]] && single_repo="true" || single_repo="false"
 
     for repo in "${REPOS[@]}"; do
       # Extract repo name (everything after last / and before .git)
-      local repo_name="${repo##*/}"      # Remove everything before last /
-      repo_name="${repo_name%.git}"      # Remove .git extension
+      local repo_name=$(basename "$repo" .git)
 
-      # If the requested package is from a specific repo, i.e. `ppm install repo/pkg`
-      if [[ "$pkg" == */* && "$repo_name" != "${pkg%/*}" ]]; then
-        continue
-      fi
+      # Skip unmatched repos if package is requested from a specific repo
+      [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
 
-      package_name="${pkg#*/}"
+      # If the package is not found in this repo then skip to the next repo
       package_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
+      [[ ! -d $package_dir ]] && continue
+      echo "Install $repo_name/$package_name"
 
-      # If the package name is not found in this repo then skip to the next, otherwise
-      # set has_installer to true or false based on if the package has an install.sh script or not
-      if [[ ! -d $package_dir ]]; then
-        continue
-      else
-        echo "Install $repo_name/$package_name"
-        [[ -f "$package_dir/install.sh" ]] && has_installer=true || has_installer=false
-      fi
+      # set has_installer to true if the package has an install.sh script
+      [[ -f "$package_dir/install.sh" ]] && has_installer=true || has_installer=false
 
       # If the package declares dependencies then spawn a subshell to install them first
       if $has_installer; then
@@ -294,6 +289,10 @@ installer() {
           fi
 
           if type "space_path" &>/dev/null; then
+            if ! command -v hub >/dev/null 2>&1; then
+              echo "WARN: Cannot install $repo_name/$package_name space. Run 'ppm install chorus'"
+              continue
+            fi
             mkdir -p $(space_path)
             if [[ -d $package_dir/space  ]]; then
               # stow --no-folding -d $package_dir -t $(space_path) space

@@ -4,6 +4,13 @@ dependencies() {
   echo "chorus"
 }
 
+pre_install() {
+  pushd $BIN_DIR > /dev/null
+  rm ppm
+  ln -s $XDG_DATA_HOME/ppm/ppm/ppm .
+  popd > /dev/null
+}
+
 space_path() { hub ls --path ppm; }
 
 space_install() {
@@ -22,28 +29,19 @@ install_repos() {
   #   ln -s "$repos/$repo" .
   # done
 
-  # local ppm_script=~/.local/bin/ppm
-  # rm -f $ppm_script
-  # ln -s "$PWD/ppm/ppm" $ppm_script
-
   rm repos
   ln -s $XDG_DATA_HOME/ppm repos
-  pushd $BIN_DIR > /dev/null
-  rm ppm
-  ln -s $XDG_DATA_HOME/ppm/ppm/ppm .
-
-  popd > /dev/null
 }
 
 install_bases() {
   mkdir -p bases
   pushd bases > /dev/null
 
-  local repos=`hub ls --path obsidian`
-  for repo in pde pdt; do
-    [[ -L "$repo" ]] && continue
-    [[ ! -d "$repos/$repo" ]] && continue
-    ln -s "$repos/$repo" .
+  local bases_dir=`hub ls --path obsidian`
+  for base in pde pdt; do
+    [[ -L "$base" ]] && continue
+    [[ ! -d "$bases_dir/$base" ]] && continue
+    ln -s "$bases_dir/$base" .
   done
 
   popd > /dev/null

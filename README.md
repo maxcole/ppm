@@ -19,7 +19,7 @@ Open a new shell when complete, then run `ppm list` to see available packages.
 The install script:
 - Installs dependencies (Homebrew on MacOS, sudo on Linux)
 - Installs ppm to `~/.local/bin/ppm`
-- Creates default config and sources.list
+- Creates config files in `~/.config/ppm/` (symlinked from your local repo)
 - Runs `ppm update` and `ppm install zsh`
 
 ## Commands
@@ -42,7 +42,7 @@ The install creates a `sources.list` with three sources (in priority order):
 
 2. **[pde-ppm](https://github.com/maxcole/pde-ppm)** - Personal Development Environment packages.
 
-3. **[pdt-ppm](https://github.com/maxcole/pdt-ppm)** - Personal Development Tools packages.
+3. **[pdt-ppm](https://github.com/maxcole/pdt-ppm)** - Product Development Toolkit packages.
 
 See each repo's README for available packages.
 

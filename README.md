@@ -65,7 +65,7 @@ export PPM_INSTALL_PACKAGES="zsh vim tmux"
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
-**Precedence**: When a package exists in multiple repos, the first repo in sources.list wins. Files already written by a higher-priority repo are skipped.
+**Precedence**: Repositories are processed in the physical order in which they are declared in `sources.list`. When a file exists in multiple repositories at exactly the same path and name then an identical file exists. In order to avoid conflict the first occurance of the file takes precedence. Any identical files in subsequent repositories will be skipped/ignored. This feature allows personal repositories to override defaults in other repositories.
 
 **Updates**: `ppm update` skips repos with uncommitted changes to protect local modifications. Commit or stash to receive updates.
 
@@ -79,6 +79,13 @@ ppm update ppm
 ### Script Only (skip package install)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --script-only
+```
+
+### Skip Dependencies
+
+Use `--skip-deps` to skip dependency installation (Homebrew, git, stow, etc.) if you already have them:
+```bash
+curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --skip-deps
 ```
 
 ### Manual Installation
@@ -107,11 +114,4 @@ To contribute to ppm or modify the install process:
 ppm add git@github.com:maxcole/ppm
 ppm update
 ppm install ppm/dev
-```
-
-### Skip Dependencies
-
-Use `--skip-deps` to skip dependency installation (Homebrew, git, stow, etc.) if you already have them:
-```bash
-curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --skip-deps
 ```

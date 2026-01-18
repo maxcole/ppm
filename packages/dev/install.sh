@@ -29,7 +29,7 @@ install_repos() {
   #   ln -s "$repos/$repo" .
   # done
 
-  rm repos
+  rm -f repos
   ln -s $XDG_DATA_HOME/ppm repos
 }
 

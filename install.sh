@@ -41,8 +41,9 @@ PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
 PPM_DATA_HOME=$XDG_DATA_HOME/ppm
 
 # PPM files
+PPM_BASE_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main
 PPM_BIN_FILE=$BIN_DIR/ppm
-PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
+PPM_CONFIG_FILE=$PPM_CONFIG_HOME/ppm.conf
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
 
@@ -58,7 +59,19 @@ os() {
 }
 
 
-ensure_deps_linux() {
+# Setup dependencies
+setup_deps() {
+  if [[ "$(os)" == "linux" ]]; then
+    setup_deps_linux
+    sudo apt install curl git stow -y
+  elif [[ "$(os)" == "macos" ]]; then
+    setup_deps_macos
+    brew install git stow wget
+  fi
+}
+
+
+setup_deps_linux() {
   # Check if user has sudo ALL privileges without prompting
   if sudo -n -l 2>/dev/null | grep -q "(ALL) ALL"; then
     return
@@ -68,7 +81,7 @@ ensure_deps_linux() {
 }
 
 
-ensure_deps_macos() {
+setup_deps_macos() {
   # Pre-authorize sudo at the start
   if ! sudo -n true 2>/dev/null; then
     echo "This script requires sudo access to install xcode. Please enter your password:"
@@ -84,32 +97,84 @@ ensure_deps_macos() {
 }
 
 
-# Ensure dependencies
-ensure_deps() {
-  if [[ "$(os)" == "linux" ]]; then
-    ensure_deps_linux
-    sudo apt install curl git stow -y
-  elif [[ "$(os)" == "macos" ]]; then
-    ensure_deps_macos
-    brew install git stow wget
+install() {
+  local repo_url="${1:-}" user_id=$(whoami)
+
+  if [[ -n "$repo_url" ]]; then
+    user_id=$(basename "$repo_url" .git)
+  fi
+
+  local repo_dir="$PPM_DATA_HOME/$user_id"
+  local repo_config_dir="$repo_dir/packages/ppm/home/.config/ppm"
+
+  if [[ -n "$repo_url" ]]; then
+    [[ ! -d "$repo_dir" ]] && git clone "$repo_url" "$repo_dir"
+  fi
+  mkdir -p "$repo_config_dir"
+
+  install_config
+  install_script
+  install_zsh
+}
+
+
+install_config() {
+  if [[ ! -f "$repo_config_dir/ppm.conf" ]]; then
+    curl -fsSL "$PPM_BASE_URL/ppm.conf" -o "$repo_config_dir/ppm.conf"
+  fi
+
+  if [[ ! -f "$repo_config_dir/sources.list" ]]; then
+    curl -fsSL "$PPM_BASE_URL/sources.list" | sed "s/{user_id}/$user_id/" > "$repo_config_dir/sources.list"
+  fi
+
+  if [[ ! -f "$repo_config_dir/sources.list" ]]; then
+    echo -e "${RED}Error: sources.list not found at $repo_config_dir/sources.list${NC}"
+    exit 1
+  fi
+
+  if [[ ! -L "$PPM_SOURCES_FILE" ]]; then
+    rm -f "$PPM_SOURCES_FILE"
+    ln -s "$repo_config_dir/sources.list" "$PPM_SOURCES_FILE"
+  fi
+
+  if [[ -f "$repo_config_dir/ppm.conf" && ! -L "$PPM_CONFIG_FILE" ]]; then
+    rm -f "$PPM_CONFIG_FILE"
+    ln -s "$repo_config_dir/ppm.conf" "$PPM_CONFIG_FILE"
   fi
 }
 
 
-setup_ppm() {
+install_script() {
   mkdir -p $BIN_DIR
   if [ ! -f $PPM_BIN_FILE ]; then
-    curl -o $PPM_BIN_FILE $PPM_BIN_URL
+    curl -fsSL "$PPM_BASE_URL/ppm" -o $PPM_BIN_FILE
     chmod +x $PPM_BIN_FILE
   fi
   mkdir -p $PPM_DATA_HOME $PPM_CONFIG_HOME
-  touch $PPM_SOURCES_FILE
 }
 
 
-main() {
-  ensure_deps
-  setup_ppm
+install_zsh() {
+  if [[ "$(os)" == "macos" ]]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  fi
+  $PPM_BIN_FILE update
+  $PPM_BIN_FILE install zsh
+  echo -e "\n${GREEN}Installation complete!${NC}"
+  echo -e "Open a new shell or run: ${CYAN}source ~/.zshrc${NC}"
 }
 
-main
+
+case "${1:-}" in
+  --script-only)
+    install_script
+    ;;
+  git@*|https://*)
+    setup_deps
+    install "$1"
+    ;;
+  *)
+    setup_deps
+    install
+    ;;
+esac

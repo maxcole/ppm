@@ -114,7 +114,6 @@ install() {
 
   install_config
   install_script
-  install_zsh
 }
 
 
@@ -154,12 +153,15 @@ install_script() {
 }
 
 
-install_zsh() {
+install_packages() {
+  local packages=("$@")
   if [[ "$(os)" == "macos" ]]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
   $PPM_BIN_FILE update
-  $PPM_BIN_FILE install zsh
+  for pkg in "${packages[@]}"; do
+    $PPM_BIN_FILE install "$pkg"
+  done
   echo -e "\n${GREEN}Installation complete!${NC}"
   echo -e "Open a new shell or run: ${CYAN}source ~/.zshrc${NC}"
 }
@@ -167,22 +169,33 @@ install_zsh() {
 
 skip_deps=false
 script_only=false
-repo_url="${PPM_REPO_URL:-}"
+repo_url="${PPM_INSTALL_REPO:-}"
+packages=()
 
-for arg in "$@"; do
-  case "$arg" in
-    --skip-deps) skip_deps=true ;;
-    --script-only) script_only=true ;;
-    git@*|https://*) repo_url="$arg" ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-deps) skip_deps=true; shift ;;
+    --script-only) script_only=true; shift ;;
+    --repo) repo_url="$2"; shift 2 ;;
+    *) packages+=("$1"); shift ;;
   esac
 done
 
 if [[ "$script_only" == true ]]; then
   install_script
-elif [[ "$repo_url" =~ ^(git@|https://) ]]; then
-  [[ "$skip_deps" == false ]] && setup_deps
-  install "$repo_url"
-else
-  [[ "$skip_deps" == false ]] && setup_deps
-  install
+  exit 0
 fi
+
+# Use PPM_INSTALL_PACKAGES if no packages specified on command line
+if [[ ${#packages[@]} -eq 0 && -n "${PPM_INSTALL_PACKAGES:-}" ]]; then
+  IFS=' ' read -ra packages <<< "$PPM_INSTALL_PACKAGES"
+fi
+
+# Default to zsh if no packages specified
+if [[ ${#packages[@]} -eq 0 ]]; then
+  packages=(zsh)
+fi
+
+[[ "$skip_deps" == false ]] && setup_deps
+install "$repo_url"
+install_packages "${packages[@]}"

@@ -20,7 +20,7 @@ The install script:
 - Installs dependencies (Homebrew on MacOS, sudo on Linux)
 - Installs ppm to `~/.local/bin/ppm`
 - Creates config files in `~/.config/ppm/` (symlinked from your local repo)
-- Runs `ppm update` and `ppm install zsh`
+- Runs `ppm update` and installs packages (defaults to `zsh`)
 
 ## Commands
 
@@ -50,12 +50,18 @@ See each repo's README for available packages.
 
 **Portability**: Back up your personal repo to git and you can port your entire system configuration to a new machine by passing your repo URL to the install script:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- git@github.com:user/my-ppm
+curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --repo git@github.com:user/my-ppm
 ```
 
-Alternatively, set `PPM_REPO_URL` in your environment:
+You can also specify which packages to install (defaults to `zsh`):
 ```bash
-export PPM_REPO_URL=git@github.com:user/my-ppm
+curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --repo git@github.com:user/my-ppm zsh vim tmux
+```
+
+Alternatively, set environment variables:
+```bash
+export PPM_INSTALL_REPO=git@github.com:user/my-ppm
+export PPM_INSTALL_PACKAGES="zsh vim tmux"
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
@@ -70,7 +76,7 @@ ppm update ppm
 
 ## Advanced Installation
 
-### Script Only (skip zsh install)
+### Script Only (skip package install)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --script-only
 ```

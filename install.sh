@@ -165,18 +165,24 @@ install_zsh() {
 }
 
 
-repo_url="${1:-${PPM_REPO_URL:-}}"
+skip_deps=false
+script_only=false
+repo_url="${PPM_REPO_URL:-}"
 
-case "$repo_url" in
-  --script-only)
-    install_script
-    ;;
-  git@*|https://*)
-    setup_deps
-    install "$repo_url"
-    ;;
-  *)
-    setup_deps
-    install
-    ;;
-esac
+for arg in "$@"; do
+  case "$arg" in
+    --skip-deps) skip_deps=true ;;
+    --script-only) script_only=true ;;
+    git@*|https://*) repo_url="$arg" ;;
+  esac
+done
+
+if [[ "$script_only" == true ]]; then
+  install_script
+elif [[ "$repo_url" =~ ^(git@|https://) ]]; then
+  [[ "$skip_deps" == false ]] && setup_deps
+  install "$repo_url"
+else
+  [[ "$skip_deps" == false ]] && setup_deps
+  install
+fi

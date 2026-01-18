@@ -102,3 +102,10 @@ ppm add git@github.com:maxcole/ppm
 ppm update
 ppm install ppm/dev
 ```
+
+### Skip Dependencies
+
+Use `--skip-deps` to skip dependency installation (Homebrew, git, stow, etc.) if you already have them:
+```bash
+curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --skip-deps
+```

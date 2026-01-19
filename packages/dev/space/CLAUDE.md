@@ -46,6 +46,12 @@ Each repository in `repos/` is a PPM package repository containing:
 - `packages/` - Directory of installable packages
 - `README.md` - Repository description
 
+### Package Structure
+
+All packages follow the same pattern:
+- `packages/<name>/install.sh` - Main install script with optional `dependencies()` function
+- `packages/<name>/home/` - Optional directory for stow (dotfiles, configs)
+
 The main `ppm` repository additionally contains:
 - `ppm` - The main executable script
 - `ppm.conf` - Default configuration

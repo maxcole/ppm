@@ -396,8 +396,6 @@ main() {
     set +a
   fi
 
-  init_ppm_config
-
   local command="$1" config=false config_flag="" force=false force_flag=""
   shift
 

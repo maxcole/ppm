@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: add, update, list, install, remove"
+  echo "Available commands: add, update, list, install, remove, show"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -379,6 +379,83 @@ remove() {
       fi
     done
   done
+}
+
+
+# Show package information: dependencies and directory trees
+show() {
+  if [[ $# -eq 0 ]]; then
+    echo "Error: show requires a package name"
+    echo "Usage: ppm show [repo/]package"
+    exit 1
+  fi
+
+  collect_repos
+
+  local pkg="$1"
+  local package_repo=$(dirname "$pkg") package_name=$(basename "$pkg")
+  [[ "$pkg" == */* ]] && single_repo="true" || single_repo="false"
+
+  local found=false
+
+  for repo in "${REPOS[@]}"; do
+    local repo_name=$(basename "$repo" .git)
+
+    # Skip unmatched repos if package is requested from a specific repo
+    [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
+
+    local package_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
+    [[ ! -d $package_dir ]] && continue
+
+    found=true
+    echo "Package: $repo_name/$package_name"
+    echo ""
+
+    # Show dependencies if install.sh exists
+    if [[ -f "$package_dir/install.sh" ]]; then
+      (
+        source "$package_dir/install.sh"
+        if type dependencies &>/dev/null; then
+          echo "Dependencies:"
+          deps=$(dependencies)
+          for dep in $deps; do
+            echo "  - $dep"
+          done
+          echo ""
+        fi
+      )
+    fi
+
+    # Show home tree if it exists
+    if [[ -d "$package_dir/home" ]]; then
+      echo "home/"
+      if command -v tree &>/dev/null; then
+        tree -a --noreport "$package_dir/home" | tail -n +2
+      else
+        find "$package_dir/home" -type f | sed "s|$package_dir/home/|  |"
+      fi
+      echo ""
+    fi
+
+    # Show space tree if it exists
+    if [[ -d "$package_dir/space" ]]; then
+      echo "space/"
+      if command -v tree &>/dev/null; then
+        tree -a --noreport "$package_dir/space" | tail -n +2
+      else
+        find "$package_dir/space" -type f | sed "s|$package_dir/space/|  |"
+      fi
+      echo ""
+    fi
+
+    # Only show first match unless specific repo requested
+    break
+  done
+
+  if ! $found; then
+    echo "Error: Package '$pkg' not found"
+    exit 1
+  fi
 }
 
 

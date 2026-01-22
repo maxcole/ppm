@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(~/spaces/ppm/**)",
+      "Glob(~/spaces/ppm/**)",
+      "Grep(~/spaces/ppm/**)",
+      "Edit(~/spaces/ppm/**)",
+      "Write(~/spaces/ppm/**)",
+      "Bash(ppm *)",
+      "Bash(git *)"
+    ]
+  }
+}

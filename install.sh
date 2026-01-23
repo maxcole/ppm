@@ -120,7 +120,7 @@ install() {
 
   install_script
   install_config
-  GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" $PPM_BIN_FILE update
+  $PPM_BIN_FILE update
 }
 
 
@@ -200,6 +200,6 @@ if [[ ${#packages[@]} -eq 0 ]]; then
 fi
 
 [[ "$skip_deps" == false ]] && setup_deps
-# ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 install "$repo_url"
 install_packages "${packages[@]}"

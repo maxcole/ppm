@@ -84,8 +84,9 @@ setup_deps() {
 
 
 setup_deps_linux() {
-  if sudo -n -l 2>/dev/null | grep -q "(ALL) ALL"; then return; fi
-  echo "enable sudo ALL for this user before continuing"
+  if sudo -n -l 2>/dev/null | grep -q "(ALL) NOPASSWD: ALL"; then return; fi
+
+  echo "Enable passwordless sudo ALL for this user before continuing"
   exit 1
 }
 
@@ -119,7 +120,7 @@ install() {
 
   install_script
   install_config
-  $PPM_BIN_FILE update
+  GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" $PPM_BIN_FILE update
 }
 
 
@@ -199,5 +200,6 @@ if [[ ${#packages[@]} -eq 0 ]]; then
 fi
 
 [[ "$skip_deps" == false ]] && setup_deps
+# ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 install "$repo_url"
 install_packages "${packages[@]}"

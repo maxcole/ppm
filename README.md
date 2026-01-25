@@ -115,3 +115,5 @@ ppm add git@github.com:maxcole/ppm
 ppm update
 ppm install ppm/dev
 ```
+
+This creates a chorus space (defualt is `~/spaces/pde` for developing the ppm script, the pde and pdt packages

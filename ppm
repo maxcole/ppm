@@ -12,6 +12,7 @@ if [[ $# -eq 0 ]]; then
 fi
 
 BIN_DIR=$HOME/.local/bin
+LIB_DIR=$HOME/.local/lib
 
 # XDG directories
 XDG_CACHE_HOME=$HOME/.cache
@@ -22,12 +23,79 @@ XDG_DATA_HOME=$HOME/.local/share
 PPM_CACHE_HOME=$XDG_CACHE_HOME/ppm
 PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
 PPM_DATA_HOME=$XDG_DATA_HOME/ppm
+PPM_LIB_DIR=$LIB_DIR/ppm
 
 # PPM files
 PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
 PPM_CONFIG_FILE="$PPM_CONFIG_HOME/ppm.conf"
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
+
+# source lib files
+if [[ -d "$PPM_LIB_DIR" ]]; then
+  for lib_file in "$PPM_LIB_DIR"/*.sh; do
+    [[ -f "$lib_file" ]] && source "$lib_file"
+  done
+fi
+
+
+# Detect the CPU architecture
+arch() {
+  local arch=$(uname -m)
+
+  if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
+    echo "arm64"
+  else
+    echo "amd64"
+  fi
+}
+
+# Detect the OS
+os() {
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    echo "linux"
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "macos"
+  else
+    echo "unsupported"
+  fi
+}
+
+# search in file and add/remove as requested
+add_to_file() {
+  local file="$1"
+  shift
+  [[ -f "$file" ]] || touch "$file"
+
+  for string in "$@"; do
+    _string_in_file "$string" "$file" || echo "$string" >> "$file"
+  done
+}
+
+remove_from_file() {
+  local file="$1"
+  shift
+  [[ -f "$file" ]] || return 0
+
+  for string in "$@"; do
+    if _string_in_file "$string" "$file"; then
+      _sed_inplace "/^$(printf '%s' "$string" | sed 's/[^^]/[&]/g; s/\^/\\^/g')$/d" "$file"
+    fi
+  done
+}
+
+_string_in_file() {
+  local string="$1" file="$2"
+  grep -qxF "$string" "$file" 2>/dev/null
+}
+
+_sed_inplace() {
+  if [[ "$(os)" == "mac" ]]; then
+    sed -i '' "$@"
+  else
+    sed -i "$@"
+  fi
+}
 
 
 # Update the homebrew cache periodically
@@ -55,30 +123,6 @@ install_dep() {
         brew upgrade "$dep"
       fi
     done
-  fi
-}
-
-
-# Detect the CPU architecture
-arch() {
-  local arch=$(uname -m)
-
-  if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
-    echo "arm64"
-  else
-    echo "amd64"
-  fi
-}
-
-
-# Detect the OS
-os() {
-  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    echo "linux"
-  elif [[ "$OSTYPE" == "darwin"* ]]; then
-    echo "macos"
-  else
-    echo "unsupported"
   fi
 }
 

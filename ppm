@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: add, update, list, install, remove, show"
+  echo "Available commands: add, update, list, install, remove, show, completions"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -435,6 +435,92 @@ remove() {
       fi
     done
   done
+}
+
+
+# Output shell completions for zsh or bash
+completions() {
+  local shell="${1:-zsh}"
+
+  case "$shell" in
+    zsh)
+      cat <<'EOF'
+#compdef ppm
+
+_ppm() {
+    local -a subcommands
+    local state
+
+    subcommands=(
+        'add:Add a git repository URL to sources.list'
+        'update:Update repositories (or "ppm update ppm" to update ppm itself)'
+        'list:List available packages'
+        'install:Install one or more packages'
+        'remove:Remove one or more packages'
+        'show:Show package information'
+        'completions:Output shell completions'
+    )
+
+    _arguments -C \
+        '1: :->command' \
+        '*: :->args'
+
+    case $state in
+        command)
+            _describe 'command' subcommands
+            ;;
+        args)
+            case ${words[2]} in
+                install|remove|show)
+                    _ppm_packages_available
+                    ;;
+                update)
+                    local -a update_opts
+                    update_opts=('ppm:Update ppm itself')
+                    _describe 'target' update_opts
+                    ;;
+                completions)
+                    local -a shells
+                    shells=('zsh' 'bash')
+                    _describe 'shell' shells
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_ppm_packages_available() {
+    local -a packages
+    local ppm_data_home="${XDG_DATA_HOME:-$HOME/.local/share}/ppm"
+
+    if [[ -d "$ppm_data_home" ]]; then
+        for repo_dir in "$ppm_data_home"/*/packages; do
+            [[ -d "$repo_dir" ]] || continue
+            local repo_name="${repo_dir%/packages}"
+            repo_name="${repo_name##*/}"
+            for pkg_dir in "$repo_dir"/*/; do
+                [[ -d "$pkg_dir" ]] || continue
+                local pkg_name="${pkg_dir%/}"
+                pkg_name="${pkg_name##*/}"
+                packages+=("${repo_name}/${pkg_name}")
+            done
+        done
+    fi
+
+    _describe 'package' packages
+}
+
+compdef _ppm ppm
+EOF
+      ;;
+    bash)
+      echo "# Bash completions not yet implemented"
+      ;;
+    *)
+      echo "Error: Unknown shell '$shell'. Supported: zsh, bash" >&2
+      return 1
+      ;;
+  esac
 }
 
 

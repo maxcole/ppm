@@ -28,7 +28,6 @@ PPM_LIB_DIR=$LIB_DIR/ppm
 # PPM files
 PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
-PPM_CONFIG_FILE="$PPM_CONFIG_HOME/ppm.conf"
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
 # source lib files
@@ -237,11 +236,33 @@ list() {
   done
 }
 
+
+# Stow a package subdirectory and collect files for ignore_args
+# Requires ignore_args array to be defined in caller's scope
+stow_subdir() {
+  local pkg_dir="$1" subdir="$2"
+  local full_path="$pkg_dir/$subdir"
+
+  [[ -d "$full_path" ]] || return 0
+
+  stow --no-folding ${ignore_args[@]+"${ignore_args[@]}"} -d "$pkg_dir" -t "$HOME" "$subdir"
+
+  while IFS= read -r file; do
+    if [[ -n "$file" ]]; then
+      local escaped="${file//./\\.}"
+      ignore_args+=("--ignore=^${escaped}\$")
+    fi
+  done < <(package_links "$full_path")
+}
+
+
 package_links() {
-  find "$package_dir/home" -type f | while read -r file; do
-    echo "${file#$package_dir/home/}"
+  local path="$1"
+  find "$path" -type f | while read -r file; do
+    echo "${file#$path/}"
   done
 }
+
 
 # Install one or more packages as requested by the user
 install() {
@@ -317,19 +338,11 @@ installer() {
         )
       fi
 
+
       # Use stow to make softlinks into the user's home directory
-      if [[ -d $package_dir/home ]]; then
-        stow --no-folding ${ignore_args[@]+"${ignore_args[@]}"} -d $package_dir -t $HOME home
-        # Collect files to ignore for lower-priority repos
-        while IFS= read -r file; do
-          if [[ -n "$file" ]]; then
-            # stow --ignore matches against the full relative path
-            # Escape dots for regex
-            local escaped="${file//./\\.}"
-            ignore_args+=("--ignore=^${escaped}\$")
-          fi
-        done < <(package_links)
-      fi
+      stow_subdir "$package_dir" "home"
+      [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
+
 
       # If the installer has an install_linux or install_mac function then run it
       # followed by post_install if it exists
@@ -353,7 +366,6 @@ installer() {
             fi
             mkdir -p $(space_path)
             if [[ -d $package_dir/space  ]]; then
-              # stow --no-folding -d $package_dir -t $(space_path) space
               stow -d $package_dir -t $(space_path) space
             fi
             if type "space_install" &>/dev/null; then
@@ -506,13 +518,12 @@ main() {
     echo "ERROR: Missing $PPM_SOURCES_FILE"
     exit 1
   fi
-  if [[ ! -f "$PPM_CONFIG_FILE" ]]; then
-    echo "WARN: Missing $PPM_CONFIG_FILE"
-  else
-    set -a
-    source $PPM_CONFIG_FILE
-    set +a
-  fi
+  # Source all *.conf files from PPM_CONFIG_HOME
+  set -a
+  for conf_file in "$PPM_CONFIG_HOME"/*.conf; do
+    [[ -f "$conf_file" ]] && source "$conf_file"
+  done
+  set +a
 
   local command="$1" config=false config_flag="" force=false force_flag=""
   shift

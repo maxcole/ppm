@@ -292,6 +292,9 @@ stow_subdir() {
 
   [[ -d "$full_path" ]] || return 0
 
+  # If force mode, remove conflicting files first
+  $force && force_remove_conflicts "$full_path"
+
   stow --no-folding ${ignore_args[@]+"${ignore_args[@]}"} -d "$pkg_dir" -t "$HOME" "$subdir"
 
   while IFS= read -r file; do
@@ -311,10 +314,35 @@ package_links() {
 }
 
 
+# Remove files from $HOME that would conflict with stow
+# Requires ignore_args array to be defined in caller's scope
+force_remove_conflicts() {
+  local full_path="$1"
+
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+
+    # Check if this file is in ignore_args (already stowed from previous subdir)
+    local escaped="${file//./\\.}"
+    local is_ignored=false
+    if [[ ${#ignore_args[@]} -gt 0 ]]; then
+      for arg in "${ignore_args[@]}"; do
+        [[ "$arg" == "--ignore=^${escaped}\$" ]] && { is_ignored=true; break; }
+      done
+    fi
+
+    # Remove the file from $HOME if it exists and isn't ignored
+    if ! $is_ignored && [[ -e "$HOME/$file" || -L "$HOME/$file" ]]; then
+      rm -f "$HOME/$file"
+    fi
+  done < <(package_links "$full_path")
+}
+
+
 # Install one or more packages as requested by the user
 install() {
   [[ "$(os)" == "macos" ]] && update_brew_if_needed
-  if $force; then
+  if $reinstall; then
     remove "$@"
   fi
   installer "$@"
@@ -341,88 +369,60 @@ installer() {
       [[ ! -d $package_dir ]] && continue
       echo "Install $repo_name/$package_name"
 
-      # set has_installer to true if the package has an install.sh script
-      [[ -f "$package_dir/install.sh" ]] && has_installer=true || has_installer=false
-
-      # If the package declares dependencies then spawn a subshell to install them first
-      if $has_installer; then
-        (
-          source "$package_dir/install.sh"
-          if type dependencies &>/dev/null; then
-            deps=$(dependencies)
-            for dep in $deps; do
-              # only pass config_flag and force_flag if they are non empty values
-              "$0" "installer" ${config_flag:+"$config_flag"} ${force_flag:+"$force_flag"} "$dep"
-            done
-          fi
-        )
+      # No installer - just stow and continue
+      if [[ ! -f "$package_dir/install.sh" ]]; then
+        stow_subdir "$package_dir" "home"
+        [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
+        continue
       fi
 
-      # If -f (force) was used then remove any possible existing symlinks first
-      # if $force; then
-      #   links=$(package_links)
-      #   for link in $links; do
-      #     if [[ -L "$HOME/$link" ]]; then
-      #       rm "$HOME/$link"
-      #     fi
-      #   done
-      # fi
+      # Has installer - handle dependencies and pre_install
+      (
+        source "$package_dir/install.sh"
+        if type dependencies &>/dev/null; then
+          deps=$(dependencies)
+          for dep in $deps; do
+            "$0" "installer" ${config_flag:+"$config_flag"} ${force_flag:+"$force_flag"} "$dep"
+          done
+        fi
+        if type pre_install &>/dev/null && [[ -z "$config_flag" ]]; then
+          pre_install
+        fi
+      )
 
-      # If installer has a paths function then create those directories
-      # followed by running the pre_install function if it is defined
-      if $has_installer; then
-        (
-          source "$package_dir/install.sh"
-          # if type paths &>/dev/null; then
-          #   pkg_dirs=$(paths)
-          #   for dir in $pkg_dirs; do
-          #     mkdir -p $dir
-          #   done
-          # fi
-          if type pre_install &>/dev/null && [[ -z "$config_flag" ]]; then
-            pre_install
-          fi
-        )
-      fi
-
-
-      # Use stow to make softlinks into the user's home directory
+      # Stow files (must be in main shell to persist ignore_args across repos)
       stow_subdir "$package_dir" "home"
       [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
 
+      # Post-install, OS-specific install, and space setup
+      (
+        source "$package_dir/install.sh"
 
-      # If the installer has an install_linux or install_mac function then run it
-      # followed by post_install if it exists
-      if $has_installer; then
-        (
-          source "$package_dir/install.sh"
+        func_name="install_$(os)"
+        if type $func_name &>/dev/null && [[ -z "$config_flag" ]]; then
+          $func_name
+        fi
 
-          func_name="install_$(os)" # install_linux or install_macos
-          if type $func_name &>/dev/null && [[ -z "$config_flag" ]]; then
-            $func_name
+        if type post_install &>/dev/null && [[ -z "$config_flag" ]]; then
+          post_install
+        fi
+
+        if type "space_path" &>/dev/null; then
+          if ! command -v hub >/dev/null 2>&1; then
+            echo "WARN: Cannot install $repo_name/$package_name space. Run 'ppm install chorus'"
+            continue
           fi
-
-          if type post_install &>/dev/null && [[ -z "$config_flag" ]]; then
-            post_install
+          mkdir -p $(space_path)
+          if [[ -d $package_dir/space ]]; then
+            stow -d $package_dir -t $(space_path) space
           fi
-
-          if type "space_path" &>/dev/null; then
-            if ! command -v hub >/dev/null 2>&1; then
-              echo "WARN: Cannot install $repo_name/$package_name space. Run 'ppm install chorus'"
-              continue
-            fi
-            mkdir -p $(space_path)
-            if [[ -d $package_dir/space  ]]; then
-              stow -d $package_dir -t $(space_path) space
-            fi
-            if type "space_install" &>/dev/null; then
-              pushd $(space_path) > /dev/null
-              space_install
-              popd > /dev/null
-            fi
+          if type "space_install" &>/dev/null; then
+            pushd $(space_path) > /dev/null
+            space_install
+            popd > /dev/null
           fi
-        )
-      fi
+        fi
+      )
     done
   done
 }
@@ -659,12 +659,13 @@ main() {
   done
   set +a
 
-  local command="$1" config=false config_flag="" force=false force_flag=""
+  local command="$1" config=false config_flag="" force=false force_flag="" reinstall=false reinstall_flag=""
   shift
 
-  # NOTE: Have to pass -c before -f b/c we are keeping it simple for now, i.e. not using getopt
+  # NOTE: Have to pass flags in order (-c -f -r) b/c we are keeping it simple for now, i.e. not using getopt
   [[ "$#" > 0 && "$1" == "-c" ]] && { config=true; config_flag="-c"; shift; }
   [[ "$#" > 0 && "$1" == "-f" ]] && { force=true; force_flag="-f"; shift; }
+  [[ "$#" > 0 && "$1" == "-r" ]] && { reinstall=true; reinstall_flag="-r"; shift; }
 
   if declare -f "$command" > /dev/null; then
     "$command" "$@"

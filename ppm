@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: add, update, list, install, remove, show, completions"
+  echo "Available commands: add-source, remove-source, update, list, install, remove, show, completions"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -127,10 +127,13 @@ install_dep() {
 
 
 # Add a git repository URL to sources.list
-add() {
+add-source() {
+  local top=false
+  [[ "${1:-}" == "--top" ]] && { top=true; shift; }
+
   if [[ $# -eq 0 ]]; then
-    echo "Error: add requires a git URL"
-    echo "Usage: ppm add <git-url>"
+    echo "Error: add-source requires a git URL"
+    echo "Usage: ppm add-source [--top] <git-url>"
     exit 1
   fi
 
@@ -148,9 +151,36 @@ add() {
     return 0
   fi
 
-  # Append URL to sources.list
-  echo "$url" >> "$PPM_SOURCES_FILE"
+  # Add URL to sources.list
+  if $top; then
+    local tmp=$(mktemp)
+    echo "$url" > "$tmp"
+    cat "$PPM_SOURCES_FILE" >> "$tmp"
+    mv "$tmp" "$PPM_SOURCES_FILE"
+  else
+    echo "$url" >> "$PPM_SOURCES_FILE"
+  fi
   echo "Added source: $url"
+}
+
+
+# Remove a git repository URL from sources.list
+remove-source() {
+  if [[ $# -eq 0 ]]; then
+    echo "Error: remove-source requires a git URL"
+    echo "Usage: ppm remove-source <git-url>"
+    exit 1
+  fi
+
+  local url="$1"
+
+  if ! _string_in_file "$url" "$PPM_SOURCES_FILE"; then
+    echo "Source not found: $url"
+    return 1
+  fi
+
+  remove_from_file "$PPM_SOURCES_FILE" "$url"
+  echo "Removed source: $url"
 }
 
 
@@ -452,11 +482,12 @@ _ppm() {
     local state
 
     subcommands=(
-        'add:Add a git repository URL to sources.list'
+        'add-source:Add a git repository URL to sources.list'
         'update:Update repositories (or "ppm update ppm" to update ppm itself)'
         'list:List available packages'
         'install:Install one or more packages'
         'remove:Remove one or more packages'
+        'remove-source:Remove a git repository URL from sources.list'
         'show:Show package information'
         'completions:Output shell completions'
     )

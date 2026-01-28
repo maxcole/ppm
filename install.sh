@@ -157,6 +157,10 @@ install_config() {
     rm -f "$PPM_CONFIG_FILE"
     ln -s "$repo_config_dir/ppm.conf" "$PPM_CONFIG_FILE"
   fi
+
+  if [[ ! -f "$PPM_CONFIG_HOME/ppm.local.conf" ]]; then
+    echo "PPM_GROUP_ID=$(os)" > "$PPM_CONFIG_HOME/ppm.local.conf"
+  fi
 }
 
 

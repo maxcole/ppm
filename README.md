@@ -28,7 +28,7 @@ The install script:
 ppm list                   # List available packages
 ppm install [PACKAGE]      # Install a package from all repos
 ppm install [REPO/PACKAGE] # Install a package from a specific repo
-ppm add [REPO_URL]         # Add a package repository
+ppm add-source [REPO_URL]  # Add a package repository
 ppm update                 # Update (git clone/pull) package repositories
 ```
 
@@ -74,6 +74,27 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 ppm update ppm
 ```
 
+## Recommendation
+When installing an existing repo on a new machine and using 1password:
+```bash
+# Install 1password app, 1passowrd cli, chrome and ghostty
+ppm install host op ssh
+```
+
+- This  will also configure the ssh agent to use 1password for all host connections
+- Then open the 1password app, scan with your phone to authenticate
+- You should now have git access at the cli
+
+```bash
+# Remove the auto generated user source and add your personal repository
+ppm remove-source `whoami`
+ppm add-source --top [git@github.com:org/repo]
+ppm update
+```
+
+- You should now have access to all your packages
+
+
 ## Advanced Installation
 
 ### Script Only (skip package install)
@@ -111,7 +132,7 @@ chmod +x ./install.sh
 To contribute to ppm or modify the install process:
 
 ```bash
-ppm add git@github.com:maxcole/ppm
+ppm add-source git@github.com:maxcole/ppm
 ppm update
 ppm install ppm/dev
 ```

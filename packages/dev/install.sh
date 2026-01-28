@@ -19,30 +19,14 @@ space_install() {
 }
 
 install_repos() {
-  # mkdir -p repos
-  # pushd repos > /dev/null
-
-  # local repos=`hub ls --path ppm-repos`
-  # for repo in ppm pde-ppm pdt-ppm; do
-  #   [[ -L "$repo" ]] && continue
-  #   [[ ! -d "$repos/$repo" ]] && continue
-  #   ln -s "$repos/$repo" .
-  # done
-
-  rm -f repos
-  ln -s $XDG_DATA_HOME/ppm repos
+  repo clone ppm/user
+  local target_dir=`hub ls --path ppm-repos`
+  local repos=$(find $target_dir -maxdepth 1 -mindepth 1 -type d)
+  create_symlinks repos $repos
 }
 
 install_bases() {
   mkdir -p bases
-  pushd bases > /dev/null
-
-  local bases_dir=`hub ls --path obsidian`
-  for base in pde pdt; do
-    [[ -L "$base" ]] && continue
-    [[ ! -d "$bases_dir/$base" ]] && continue
-    ln -s "$bases_dir/$base" .
-  done
-
-  popd > /dev/null
+  local target_dir=`hub ls --path obsidian`
+  create_symlinks bases "$target_dir/pde" "$target_dir/pdt"
 }

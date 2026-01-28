@@ -1,6 +1,9 @@
 ppm:
   url: git@github.com:maxcole/dev-ppm
   path: ppm-repos:ppm
+ppm/user:
+  url: git@github.com:maxcole/user-ppm
+  path: ppm:repos/user-ppm
 ppm/pde:
   url: git@github.com:maxcole/pde-ppm
   path: ppm-repos:pde-ppm

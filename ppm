@@ -96,6 +96,21 @@ _sed_inplace() {
   fi
 }
 
+# Creates symlinks in target_dir for each entry in the list
+create_symlinks() {
+  local target_dir="$1"
+  shift
+  local entries=("$@")
+
+  for entry in "${entries[@]}"; do
+    local name=$(basename "$entry")
+    local link_path="$target_dir/$name"
+    if [ ! -L "$link_path" ]; then
+      ln -s "$entry" "$link_path"
+    fi
+  done
+}
+
 
 # Update the homebrew cache periodically
 update_brew_if_needed() {
@@ -115,11 +130,13 @@ install_dep() {
   if [[ "$(os)" == "linux" ]]; then
     sudo apt install "$@" -y
   elif [[ "$(os)" == "macos" ]]; then
+    local cask_flag=""
+    [[ "${1:-}" == "--cask" ]] && { cask_flag="--cask"; shift; }
     for dep in "$@"; do
-      if ! brew list "$dep" &>/dev/null; then
-        brew install "$dep"
-      elif brew outdated --quiet | grep -q "^${dep}$"; then
-        brew upgrade "$dep"
+      if ! brew list $cask_flag "$dep" &>/dev/null; then
+        brew install $cask_flag "$dep"
+      elif brew outdated $cask_flag --quiet | grep -q "^${dep}$"; then
+        brew upgrade $cask_flag "$dep"
       fi
     done
   fi

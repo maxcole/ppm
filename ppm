@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: add-source, remove-source, update, list, install, remove, show, completions"
+  echo "Available commands: src, update, list, install, remove, show, completions"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -143,61 +143,82 @@ install_dep() {
 }
 
 
-# Add a git repository URL to sources.list
-add-source() {
-  local top=false
-  [[ "${1:-}" == "--top" ]] && { top=true; shift; }
+# Manage sources in sources.list
+src() {
+  local subcommand="${1:-}"
+  shift 2>/dev/null || true
 
-  if [[ $# -eq 0 ]]; then
-    echo "Error: add-source requires a git URL"
-    echo "Usage: ppm add-source [--top] <git-url>"
-    exit 1
-  fi
+  case "$subcommand" in
+    add)
+      local top=false
+      [[ "${1:-}" == "--top" ]] && { top=true; shift; }
 
-  local url="$1"
+      if [[ $# -eq 0 ]]; then
+        echo "Error: src add requires a git URL"
+        echo "Usage: ppm src add [--top] <git-url>"
+        exit 1
+      fi
 
-  # Create config directory if it doesn't exist
-  mkdir -p "$PPM_CONFIG_HOME"
+      local url="$1"
 
-  # Create sources.list if it doesn't exist
-  touch "$PPM_SOURCES_FILE"
+      # Create config directory if it doesn't exist
+      mkdir -p "$PPM_CONFIG_HOME"
 
-  # Check if URL already exists in sources.list
-  if grep -qxF "$url" "$PPM_SOURCES_FILE" 2>/dev/null; then
-    echo "Source already exists: $url"
-    return 0
-  fi
+      # Create sources.list if it doesn't exist
+      touch "$PPM_SOURCES_FILE"
 
-  # Add URL to sources.list
-  if $top; then
-    local tmp=$(mktemp)
-    echo "$url" > "$tmp"
-    cat "$PPM_SOURCES_FILE" >> "$tmp"
-    mv "$tmp" "$PPM_SOURCES_FILE"
-  else
-    echo "$url" >> "$PPM_SOURCES_FILE"
-  fi
-  echo "Added source: $url"
-}
+      # Check if URL already exists in sources.list
+      if grep -qxF "$url" "$PPM_SOURCES_FILE" 2>/dev/null; then
+        echo "Source already exists: $url"
+        return 0
+      fi
 
+      # Add URL to sources.list
+      if $top; then
+        local tmp=$(mktemp)
+        echo "$url" > "$tmp"
+        cat "$PPM_SOURCES_FILE" >> "$tmp"
+        mv "$tmp" "$PPM_SOURCES_FILE"
+      else
+        echo "$url" >> "$PPM_SOURCES_FILE"
+      fi
+      echo "Added source: $url"
+      ;;
 
-# Remove a git repository URL from sources.list
-remove-source() {
-  if [[ $# -eq 0 ]]; then
-    echo "Error: remove-source requires a git URL"
-    echo "Usage: ppm remove-source <git-url>"
-    exit 1
-  fi
+    remove)
+      if [[ $# -eq 0 ]]; then
+        echo "Error: src remove requires a git URL"
+        echo "Usage: ppm src remove <git-url>"
+        exit 1
+      fi
 
-  local url="$1"
+      local url="$1"
 
-  if ! _string_in_file "$url" "$PPM_SOURCES_FILE"; then
-    echo "Source not found: $url"
-    return 1
-  fi
+      if ! _string_in_file "$url" "$PPM_SOURCES_FILE"; then
+        echo "Source not found: $url"
+        return 1
+      fi
 
-  remove_from_file "$PPM_SOURCES_FILE" "$url"
-  echo "Removed source: $url"
+      remove_from_file "$PPM_SOURCES_FILE" "$url"
+      echo "Removed source: $url"
+      ;;
+
+    list)
+      if [[ -f "$PPM_SOURCES_FILE" ]]; then
+        cat "$PPM_SOURCES_FILE"
+      else
+        echo "No sources configured"
+      fi
+      ;;
+
+    *)
+      echo "Usage: ppm src <add|remove|list>"
+      echo "  add [--top] <git-url>  Add a source repository"
+      echo "  remove <git-url>       Remove a source repository"
+      echo "  list                   List configured sources"
+      [[ -z "$subcommand" ]] || exit 1
+      ;;
+  esac
 }
 
 
@@ -236,6 +257,11 @@ update_self() {
   echo "ppm updated successfully"
 }
 
+# Check if entry is a git URL (not a local path)
+is_git_url() {
+  [[ "$1" == git@* || "$1" == *://* ]]
+}
+
 # Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_DATA_HOME
 update() {
   # Handle self-update
@@ -251,6 +277,11 @@ update() {
     # Extract repo name (everything after last / and before .git)
     local repo_name="${repo##*/}"      # Remove everything before last /
     repo_name="${repo_name%.git}"      # Remove .git extension
+
+    # Skip local paths that aren't git URLs
+    if ! is_git_url "$repo"; then
+      continue
+    fi
 
     if [ ! -d $PPM_DATA_HOME/$repo_name ]; then
       echo "Cloning: $repo"
@@ -499,12 +530,11 @@ _ppm() {
     local state
 
     subcommands=(
-        'add-source:Add a git repository URL to sources.list'
+        'src:Manage source repositories (add, remove, list)'
         'update:Update repositories (or "ppm update ppm" to update ppm itself)'
         'list:List available packages'
         'install:Install one or more packages'
         'remove:Remove one or more packages'
-        'remove-source:Remove a git repository URL from sources.list'
         'show:Show package information'
         'completions:Output shell completions'
     )
@@ -519,6 +549,13 @@ _ppm() {
             ;;
         args)
             case ${words[2]} in
+                src)
+                    if [[ ${#words[@]} -eq 3 ]]; then
+                        local -a src_cmds
+                        src_cmds=('add:Add a source repository' 'remove:Remove a source repository' 'list:List configured sources')
+                        _describe 'subcommand' src_cmds
+                    fi
+                    ;;
                 install|remove|show)
                     _ppm_packages_available
                     ;;
@@ -662,10 +699,15 @@ main() {
   local command="$1" config=false config_flag="" force=false force_flag="" reinstall=false reinstall_flag=""
   shift
 
-  # NOTE: Have to pass flags in order (-c -f -r) b/c we are keeping it simple for now, i.e. not using getopt
-  [[ "$#" > 0 && "$1" == "-c" ]] && { config=true; config_flag="-c"; shift; }
-  [[ "$#" > 0 && "$1" == "-f" ]] && { force=true; force_flag="-f"; shift; }
-  [[ "$#" > 0 && "$1" == "-r" ]] && { reinstall=true; reinstall_flag="-r"; shift; }
+  while [[ "$#" -gt 0 && "$1" == -* ]]; do
+    case "$1" in
+      -c) config=true; config_flag="-c" ;;
+      -f) force=true; force_flag="-f" ;;
+      -r) reinstall=true; reinstall_flag="-r" ;;
+      *) echo "Unknown flag: $1"; exit 1 ;;
+    esac
+    shift
+  done
 
   if declare -f "$command" > /dev/null; then
     "$command" "$@"
@@ -676,4 +718,9 @@ main() {
   fi
 }
 
-main "$@"
+# Skip main() setup for commands that don't need it
+case "${1:-}" in
+  completions) completions "${@:2}" ;;
+  src) src "${@:2}" ;;
+  *) main "$@" ;;
+esac

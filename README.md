@@ -74,16 +74,21 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 ppm update ppm
 ```
 
-## Recommendation
-When installing an existing repo on a new machine and using 1password:
+## Migrating/Adding a New Host (Recommendation)
+If you already have a personal ppm repo and you are migrating to (or adding an additional) machine and you are using 1password:
 ```bash
-# Install 1password app, 1passowrd cli, chrome and ghostty
-ppm install host op ssh
+# Install the 1password app and the 1passowrd cli
+ppm install op ssh
 ```
 
-- This  will also configure the ssh agent to use 1password for all host connections
-- Then open the 1password app, scan with your phone to authenticate
-- You should now have git access at the cli
+The installation will auto configure the ssh agent to use 1password for all host connections
+
+- Open the 1password app, scan with your phone to authenticate
+- Upon login, select 1Password > Settings from the menu bar, then select Developer
+- Select Set Up SSH Agent, then choose whether you want to display SSH key names when you authorize connections
+- Close the window. No need to copy snippet or have 1password update ssh config
+
+You should now have git access at the cli
 
 ```bash
 # Remove the auto generated user source and add your personal repository

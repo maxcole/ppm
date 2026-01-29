@@ -185,9 +185,9 @@ chmod +x ./install.sh
 To contribute to ppm or modify the install process:
 
 ```bash
-ppm add-source git@github.com:maxcole/ppm
+ppm src add git@github.com:maxcole/ppm
 ppm update
 ppm install ppm/dev
 ```
 
-This creates a chorus space (defualt is `~/spaces/pde` for developing the ppm script, the pde and pdt packages
+This creates a chorus space (defualt is `~/spaces/ppm` for developing the ppm script, the pde and pdt packages

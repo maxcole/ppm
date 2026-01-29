@@ -104,15 +104,6 @@ setup_deps_macos() {
 }
 
 
-install() {
-  local repo_url="${1:-}"
-  install_script
-  install_config
-  [[ -n "$repo_url" ]] && install_repo
-  $PPM_BIN_FILE update
-}
-
-
 install_script() {
   mkdir -p $BIN_DIR
   if [ ! -f $PPM_BIN_FILE ]; then
@@ -175,6 +166,7 @@ done
 
 if [[ "$script_only" == true ]]; then
   install_script
+  install_config
   exit 0
 fi
 
@@ -187,5 +179,8 @@ fi
 
 [[ "$skip_deps" == false ]] && setup_deps
 ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-install "$repo_url"
+install_script
+install_config
+[[ -n "$repo_url" ]] && install_repo
+$PPM_BIN_FILE update
 install_packages "${packages[@]}"

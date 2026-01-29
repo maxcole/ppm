@@ -89,10 +89,22 @@ _string_in_file() {
 }
 
 _sed_inplace() {
-  if [[ "$(os)" == "mac" ]]; then
-    sed -i '' "$@"
+  local pattern="$1" file="$2"
+
+  # Resolve symlink to actual file
+  if [[ -L "$file" ]]; then
+    local link_target=$(readlink "$file")
+    if [[ "$link_target" == /* ]]; then
+      file="$link_target"
+    else
+      file="$(dirname "$file")/$link_target"
+    fi
+  fi
+
+  if [[ "$(os)" == "macos" ]]; then
+    sed -i '' "$pattern" "$file"
   else
-    sed -i "$@"
+    sed -i "$pattern" "$file"
   fi
 }
 
@@ -234,17 +246,37 @@ collect_repos() {
 }
 
 
+# Check if argument is a known repo name (exists in PPM_DATA_HOME)
+is_repo_name() {
+  local name="$1"
+  [[ -d "$PPM_DATA_HOME/$name/packages" ]]
+}
+
+
+# Collect packages, optionally filtered to specific repos
+# Usage: collect_packages [repo1 repo2 ...]
+# If no args, collects from all repos
 collect_packages() {
-  collect_repos
+  local filter_repos=("$@")
   PACKAGES=()
 
-  for repo in "${REPOS[@]}"; do
-    local repo_name="${repo##*/}"      # Remove everything before last /
-    repo_name="${repo_name%.git}"      # Remove .git extension
+  # If no filter provided, get all repo names from sources
+  if [[ ${#filter_repos[@]} -eq 0 ]]; then
+    collect_repos
+    for repo in "${REPOS[@]}"; do
+      local repo_name="${repo##*/}"
+      repo_name="${repo_name%.git}"
+      filter_repos+=("$repo_name")
+    done
+  fi
+
+  for repo_name in "${filter_repos[@]}"; do
+    local repo_path="$PPM_DATA_HOME/$repo_name/packages"
+    [[ -d "$repo_path" ]] || continue
 
     while IFS= read -r dir; do
       PACKAGES+=("$repo_name/$(basename "$dir")")
-    done < <(ls -d $PPM_DATA_HOME/$repo_name/packages/*/)
+    done < <(ls -d "$repo_path"/*/ 2>/dev/null)
   done
 }
 
@@ -373,10 +405,38 @@ force_remove_conflicts() {
 # Install one or more packages as requested by the user
 install() {
   [[ "$(os)" == "macos" ]] && update_brew_if_needed
+
+  # Expand repo-only arguments to all packages in that repo
+  local expanded_packages=()
+  for arg in "$@"; do
+    # Trailing slash means "all packages from repo" (e.g., "ppm/" -> all packages in ppm)
+    if [[ "$arg" == */ ]] && is_repo_name "${arg%/}"; then
+      arg="${arg%/}"
+      collect_packages "$arg"
+
+      if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+        echo "Error: No packages found in repo '$arg'"
+        exit 1
+      fi
+
+      # Confirm unless -f flag
+      if ! $force; then
+        echo "About to install all packages (${#PACKAGES[@]}) from $arg:"
+        printf '  %s\n' "${PACKAGES[@]}"
+        read -p "Continue? [y/N] " confirm
+        [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+      fi
+
+      expanded_packages+=("${PACKAGES[@]}")
+    else
+      expanded_packages+=("$arg")
+    fi
+  done
+
   if $reinstall; then
-    remove "$@"
+    remove "${expanded_packages[@]}"
   fi
-  installer "$@"
+  installer "${expanded_packages[@]}"
 }
 
 installer() {

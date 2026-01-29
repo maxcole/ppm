@@ -35,8 +35,8 @@ _ppm_user_sudo() {
 }
 
 # Create a test user
-# Usage: ppm_user_add <userid> [--sudo]
-ppm_user_add() {
+# Usage: ppm-user-add <userid> [--sudo]
+ppm-user-add() {
   local userid="$1"
   local with_sudo=false
 
@@ -50,7 +50,7 @@ ppm_user_add() {
   done
 
   if [[ -z "$userid" ]]; then
-    echo "Usage: ppm_user_add <userid> [--sudo]"
+    echo "Usage: ppm-user-add <userid> [--sudo]"
     return 1
   fi
 
@@ -79,13 +79,13 @@ ppm_user_add() {
 }
 
 # Remove a test user
-# Usage: ppm_user_remove <userid>
-ppm_user_remove() {
+# Usage: ppm-user-remove <userid>
+ppm-user-remove() {
   local userid="$1"
   local uid
 
   if [[ -z "$userid" ]]; then
-    echo "Usage: ppm_user_remove <userid>"
+    echo "Usage: ppm-user-remove <userid>"
     return 1
   fi
 

@@ -1,8 +1,3 @@
----
-id: ppm
-aliases: []
-tags: []
----
 
 # PPM - Personal Package Manager
 
@@ -77,12 +72,6 @@ The `install.sh` file is a bash script that can define these functions (all opti
 # Package dependencies (space-separated package names)
 dependencies() {
   echo "dep1 dep2"
-}
-
-# Directories to create before installation
-paths() {
-  echo "$XDG_CONFIG_HOME/myapp"
-  echo "$XDG_DATA_HOME/myapp"
 }
 
 # Pre-stow setup (runs before symlinks created)

@@ -108,17 +108,7 @@ install() {
   local repo_url="${1:-}"
   install_script
   install_config
-
-  if [[ -n "$repo_url" ]]; then
-    $PPM_BIN_FILE src add --top $repo_url
-    $PPM_BIN_FILE update
-
-    repo_name=$(basename "$repo_url" .git)
-    if [[ -d "$repo_name/packages/ppm" ]]; then
-      $PPM_BIN_FILE install -f $repo_name/ppm
-    fi
-  fi
-
+  [[ -n "$repo_url" ]] && install_repo
   $PPM_BIN_FILE update
 }
 
@@ -145,6 +135,14 @@ install_config() {
   if [[ ! -f "$PPM_CONFIG_HOME/ppm.local.conf" ]]; then
     echo "PPM_GROUP_ID=$(os)" > "$PPM_CONFIG_HOME/ppm.local.conf"
   fi
+}
+
+
+install_repo() {
+  $PPM_BIN_FILE src add --top $repo_url
+  $PPM_BIN_FILE update
+  repo_name=$(basename "$repo_url" .git)
+  $PPM_BIN_FILE install -f $repo_name/ppm
 }
 
 

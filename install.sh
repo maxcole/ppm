@@ -56,6 +56,7 @@ PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
 PPM_DATA_HOME=$XDG_DATA_HOME/ppm
 
 PPM_BASE_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main
+PPM_USER_URL=https://raw.githubusercontent.com/maxcole/user-ppm/refs/heads/main
 PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_CONFIG_FILE=$PPM_CONFIG_HOME/ppm.conf
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
@@ -104,22 +105,20 @@ setup_deps_macos() {
 
 
 install() {
-  local repo_url="${1:-}" user_id=$(whoami)-ppm
-
-  if [[ -n "$repo_url" ]]; then
-    user_id=$(basename "$repo_url" .git)
-  fi
-
-  local repo_dir="$PPM_DATA_HOME/$user_id"
-  local repo_config_dir="$repo_dir/packages/ppm/home/.config/ppm"
-
-  if [[ -n "$repo_url" ]]; then
-    [[ ! -d "$repo_dir" ]] && git clone "$repo_url" "$repo_dir"
-  fi
-  mkdir -p "$repo_config_dir"
-
+  local repo_url="${1:-}"
   install_script
   install_config
+
+  if [[ -n "$repo_url" ]]; then
+    $PPM_BIN_FILE src add --top $repo_url
+    $PPM_BIN_FILE update
+
+    repo_name=$(basename "$repo_url" .git)
+    if [[ -d "$repo_name/packages/ppm" ]]; then
+      $PPM_BIN_FILE install -f $repo_name/ppm
+    fi
+  fi
+
   $PPM_BIN_FILE update
 }
 
@@ -135,28 +134,13 @@ install_script() {
 
 
 install_config() {
-  if [[ ! -f "$repo_config_dir/ppm.conf" ]]; then
-    curl -fsSL "$PPM_BASE_URL/ppm.conf" -o "$repo_config_dir/ppm.conf"
-  fi
+  local pkg_path=packages/ppm/home/.config/ppm
 
-  if [[ ! -f "$repo_config_dir/sources.list" ]]; then
-    curl -fsSL "$PPM_BASE_URL/sources.list" | sed "s/{user_id}/$user_id/" > "$repo_config_dir/sources.list"
-  fi
-
-  if [[ ! -f "$repo_config_dir/sources.list" ]]; then
-    echo -e "${RED}Error: sources.list not found at $repo_config_dir/sources.list${NC}"
-    exit 1
-  fi
-
-  if [[ ! -L "$PPM_SOURCES_FILE" ]]; then
-    rm -f "$PPM_SOURCES_FILE"
-    ln -s "$repo_config_dir/sources.list" "$PPM_SOURCES_FILE"
-  fi
-
-  if [[ -f "$repo_config_dir/ppm.conf" && ! -L "$PPM_CONFIG_FILE" ]]; then
-    rm -f "$PPM_CONFIG_FILE"
-    ln -s "$repo_config_dir/ppm.conf" "$PPM_CONFIG_FILE"
-  fi
+  for config_file in ppm.conf sources.list; do
+    if [[ ! -f "$PPM_CONFIG_HOME/$config_file" ]]; then
+      curl -fsSL "$PPM_USER_URL/$pkg_path/$config_file" -o "$PPM_CONFIG_HOME/$config_file"
+    fi
+  done
 
   if [[ ! -f "$PPM_CONFIG_HOME/ppm.local.conf" ]]; then
     echo "PPM_GROUP_ID=$(os)" > "$PPM_CONFIG_HOME/ppm.local.conf"

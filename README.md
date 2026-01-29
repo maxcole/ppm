@@ -19,16 +19,17 @@ Open a new shell when complete, then run `ppm list` to see available packages.
 The install script:
 - Installs dependencies (Homebrew on MacOS, sudo on Linux)
 - Installs ppm to `~/.local/bin/ppm`
-- Creates config files in `~/.config/ppm/` (symlinked from your local repo)
+- Creates config files in `~/.config/ppm/`
 - Runs `ppm update` and installs packages (defaults to `zsh`)
 
 ## Commands
 
 ```bash
 ppm list                   # List available packages
-ppm install [PACKAGE]      # Install a package from all repos
-ppm install [REPO/PACKAGE] # Install a package from a specific repo
-ppm add-source [REPO_URL]  # Add a package repository
+ppm install [REPO]         # Installs all packages from a specific repo
+ppm install [PACKAGE]      # Install a specific package from all repos
+ppm install [REPO/PACKAGE] # Install a specific package from a specific repo
+ppm src add [REPO_URL]     # Add a package repository
 ppm update                 # Update (git clone/pull) package repositories
 ```
 
@@ -36,15 +37,37 @@ After installing a package, run `zsrc` to reload zsh configuration.
 
 ## Default Sources
 
-The install creates a `sources.list` with three sources (in priority order):
+The install creates a `sources.list` with two sources (in priority order):
 
-1. **Your user ID** - Local-only source at `~/.local/share/ppm/{user_id}` for personal settings that override other repos. Consider backing this up as a git repo.
+1. **[pde-ppm](https://github.com/maxcole/pde-ppm)** - Personal Development Environment packages.
 
-2. **[pde-ppm](https://github.com/maxcole/pde-ppm)** - Personal Development Environment packages.
-
-3. **[pdt-ppm](https://github.com/maxcole/pdt-ppm)** - Product Development Toolkit packages.
+2. **[pdt-ppm](https://github.com/maxcole/pdt-ppm)** - Product Development Toolkit packages.
 
 See each repo's README for available packages.
+
+## Creating Your Personal Package Repo
+
+Use `ppm package` to bootstrap a new personal package repository:
+
+```bash
+ppm package git@github.com:user/my-ppm
+```
+
+This command:
+1. Adds the repo URL to the top of your sources list
+2. Clones the repo
+3. Populates it with default packages from [user-ppm](https://github.com/maxcole/user-ppm)
+4. Copies your current ppm config (sources.list, ppm.conf)
+5. Commits the initial packages
+6. Installs the ppm package with `-f` to link the config
+
+After running, push your changes:
+```bash
+cd ~/.local/share/ppm/my-ppm
+git push
+```
+
+Your personal repo is now the highest priority source, allowing you to customize packages and override defaults from other repos.
 
 ## Good to Know
 
@@ -73,30 +96,6 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 ```bash
 ppm update ppm
 ```
-
-## Creating Your Personal Package Repo
-
-Use `ppm package` to bootstrap a new personal package repository:
-
-```bash
-ppm package git@github.com:user/my-ppm
-```
-
-This command:
-1. Adds the repo URL to the top of your sources list
-2. Clones the repo
-3. Populates it with default packages from [user-ppm](https://github.com/maxcole/user-ppm)
-4. Copies your current ppm config (sources.list, ppm.conf)
-5. Commits the initial packages
-6. Installs the ppm package with `-f` to link the config
-
-After running, push your changes:
-```bash
-cd ~/.local/share/ppm/my-ppm
-git push
-```
-
-Your personal repo is now the highest priority source, allowing you to customize packages and override defaults from other repos.
 
 ## 1Password Integration
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: src, update, list, install, remove, show, completions"
+  echo "Available commands: src, update, list, install, remove, show, completions, package"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -231,6 +231,49 @@ src() {
       [[ -z "$subcommand" ]] || exit 1
       ;;
   esac
+}
+
+
+# Add a remote repo source and pull its contents
+package() {
+  if [[ $# -eq 0 ]]; then
+    echo "Error: package requires a git URL"
+    echo "Usage: ppm package <git-url>"
+    exit 1
+  fi
+
+  local url="$1" user_ppm_url=https://github.com/maxcole/user-ppm.git
+  local repo_name=$(basename "$url" .git)
+  # local repo_name="${url##*/}"
+  # repo_name="${repo_name%.git}"
+  local repo_dir="$PPM_DATA_HOME/$repo_name"
+
+  src add --top "$url"
+  update
+
+  if [[ ! -d "$repo_dir" ]]; then
+    echo "Error: Failed to clone '$repo_name'"
+    exit 1
+  fi
+
+  # Bootstrap with default packages from user-ppm
+  rm -rf "$repo_dir/packages"
+  git clone "$user_ppm_url" /tmp/user-ppm
+  cp -a /tmp/user-ppm/packages "$repo_dir/"
+  rm -rf /tmp/user-ppm
+
+  # Copy user's current ppm config
+  mkdir -p "$repo_dir/packages/ppm/home/.config/ppm"
+  cp "$PPM_CONFIG_HOME/ppm.conf" "$PPM_CONFIG_HOME/sources.list" "$repo_dir/packages/ppm/home/.config/ppm/" 2>/dev/null || true
+
+  # Commit the initial packages
+  git -C "$repo_dir" add packages
+  git -C "$repo_dir" commit -m "add initial packages"
+
+  # Install ppm package
+  install -f "$repo_name/ppm"
+
+  echo "Package source '$repo_name' ready. Don't forget to push the updates"
 }
 
 
@@ -470,10 +513,10 @@ installer() {
       # Has installer - handle dependencies and pre_install
       (
         source "$package_dir/install.sh"
-        if type dependencies &>/dev/null; then
+        if ! $skip_deps && type dependencies &>/dev/null; then
           deps=$(dependencies)
           for dep in $deps; do
-            "$0" "installer" ${config_flag:+"$config_flag"} ${force_flag:+"$force_flag"} "$dep"
+            "$0" "installer" ${config_flag:+"$config_flag"} ${force_flag:+"$force_flag"} ${skip_deps_flag:+"$skip_deps_flag"} "$dep"
           done
         fi
         if type pre_install &>/dev/null && [[ -z "$config_flag" ]]; then
@@ -556,12 +599,6 @@ remove() {
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
-          # if type paths &>/dev/null; then
-          #   pkg_dirs=$(paths)
-          #   for dir in $pkg_dirs; do
-          #     rm -rf $dir
-          #   done
-          # fi
           func_name="remove_$(os)" # remove_linux or remove_macos
           if type $func_name &>/dev/null; then
             $func_name
@@ -597,6 +634,7 @@ _ppm() {
         'remove:Remove one or more packages'
         'show:Show package information'
         'completions:Output shell completions'
+        'package:Add a source repo and pull its contents'
     )
 
     _arguments -C \
@@ -756,7 +794,7 @@ main() {
   done
   set +a
 
-  local command="$1" config=false config_flag="" force=false force_flag="" reinstall=false reinstall_flag=""
+  local command="$1" config=false config_flag="" force=false force_flag="" reinstall=false reinstall_flag="" skip_deps=false skip_deps_flag=""
   shift
 
   while [[ "$#" -gt 0 && "$1" == -* ]]; do
@@ -764,6 +802,7 @@ main() {
       -c) config=true; config_flag="-c" ;;
       -f) force=true; force_flag="-f" ;;
       -r) reinstall=true; reinstall_flag="-r" ;;
+      -s) skip_deps=true; skip_deps_flag="-s" ;;
       *) echo "Unknown flag: $1"; exit 1 ;;
     esac
     shift
@@ -782,5 +821,6 @@ main() {
 case "${1:-}" in
   completions) completions "${@:2}" ;;
   src) src "${@:2}" ;;
+  package) package "${@:2}" ;;
   *) main "$@" ;;
 esac

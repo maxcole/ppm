@@ -62,8 +62,10 @@ os() {
 
 # search in file and add/remove as requested
 add_to_file() {
-  local file="$1"
+  local file="$1" dir="$(dirname "$1")"
   shift
+
+  [[ -d "$dir" ]] || mkdir -p $dir
   [[ -f "$file" ]] || touch "$file"
 
   for string in "$@"; do

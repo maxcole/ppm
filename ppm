@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: src, update, list, install, remove, show, completions, package"
+  echo "Available commands: src, update, list, install, remove, show, path, cd, completions, package"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -632,9 +632,12 @@ _ppm() {
         'src:Manage source repositories (add, remove, list)'
         'update:Update repositories (or "ppm update ppm" to update ppm itself)'
         'list:List available packages'
+        'ls:List available packages (alias for list)'
         'install:Install one or more packages'
         'remove:Remove one or more packages'
         'show:Show package information'
+        'path:Output path to a package directory'
+        'cd:Change to a package directory'
         'completions:Output shell completions'
         'package:Add a source repo and pull its contents'
     )
@@ -656,7 +659,7 @@ _ppm() {
                         _describe 'subcommand' src_cmds
                     fi
                     ;;
-                install|remove|show)
+                install|remove|show|path|cd)
                     _ppm_packages_available
                     ;;
                 update)
@@ -783,6 +786,51 @@ show() {
 }
 
 
+# Output the path to a package directory
+path() {
+  local verbose=false
+  [[ "${1:-}" == "-v" ]] && { verbose=true; shift; }
+
+  if [[ $# -eq 0 ]]; then
+    echo "Error: path requires a package name"
+    echo "Usage: ppm path [-v] [repo/]package"
+    exit 1
+  fi
+
+  collect_repos
+
+  local pkg="$1"
+  local package_repo=$(dirname "$pkg") package_name=$(basename "$pkg")
+  [[ "$pkg" == */* ]] && single_repo="true" || single_repo="false"
+
+  local found_paths=()
+
+  for repo in "${REPOS[@]}"; do
+    local repo_name=$(basename "$repo" .git)
+
+    # Skip unmatched repos if package is requested from a specific repo
+    [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
+
+    local package_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
+    [[ -d $package_dir ]] && found_paths+=("$package_dir")
+  done
+
+  if [[ ${#found_paths[@]} -eq 0 ]]; then
+    echo "Error: Package '$pkg' not found" >&2
+    exit 1
+  fi
+
+  if $verbose && [[ ${#found_paths[@]} -gt 1 ]]; then
+    echo "Warning: Package '$pkg' found in multiple repos, using first match:" >&2
+    for p in "${found_paths[@]}"; do
+      echo "  $(basename "$(dirname "$(dirname "$p")")")/$(basename "$p")" >&2
+    done
+  fi
+
+  echo "${found_paths[0]}"
+}
+
+
 # Entrypoint
 main() {
   if [[ ! -f $PPM_SOURCES_FILE ]]; then
@@ -798,6 +846,9 @@ main() {
 
   local command="$1" config=false config_flag="" force=false force_flag="" reinstall=false reinstall_flag="" skip_deps=false skip_deps_flag=""
   shift
+
+  # Command aliases
+  [[ "$command" == "ls" ]] && command="list"
 
   while [[ "$#" -gt 0 && "$1" == -* ]]; do
     case "$1" in

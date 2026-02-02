@@ -1,5 +1,19 @@
 # ppm.zsh
 
+# Wrapper to handle `ppm cd` since subshells can't change parent directory
+ppm() {
+  if [[ "${1:-}" == "cd" ]]; then
+    shift
+    local verbose_flag=""
+    [[ "${1:-}" == "-v" ]] && { verbose_flag="-v"; shift; }
+    local pkg_path
+    pkg_path=$(command ppm path $verbose_flag "$@") || return $?
+    cd "$pkg_path"
+  else
+    command ppm "$@"
+  fi
+}
+
 # In case the ppm script is unavailable, e.g. softlink target has moved
 ppm-fix() {
   rm -f $BIN_DIR/ppm

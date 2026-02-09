@@ -30,3 +30,8 @@ install_bases() {
   local target_dir=`hub ls --path obsidian`
   create_symlinks bases "$target_dir/pde" "$target_dir/pdt"
 }
+
+post_install() {
+  source <(mise activate bash)
+  mise install npm:bats
+}

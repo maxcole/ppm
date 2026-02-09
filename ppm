@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: src, update, list, install, remove, show, path, cd, completions, package"
+  echo "Available commands: src, update, list, install, remove, show, cd, package"
 }
 
 if [[ $# -eq 0 ]]; then

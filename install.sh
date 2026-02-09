@@ -178,7 +178,8 @@ if [[ ${#packages[@]} -eq 0 ]]; then
 fi
 
 [[ "$skip_deps" == false ]] && setup_deps
-ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+mkdir $HOME/.ssh
+ssh-keyscan github.com >> $HOME/.ssh/known_hosts 2>/dev/null
 install_script
 install_config
 [[ -n "$repo_url" ]] && install_repo

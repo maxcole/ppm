@@ -178,7 +178,7 @@ if [[ ${#packages[@]} -eq 0 ]]; then
 fi
 
 [[ "$skip_deps" == false ]] && setup_deps
-mkdir $HOME/.ssh
+mkdir -p $HOME/.ssh
 ssh-keyscan github.com >> $HOME/.ssh/known_hosts 2>/dev/null
 install_script
 install_config

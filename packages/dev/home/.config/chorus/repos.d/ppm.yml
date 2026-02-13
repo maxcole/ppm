@@ -10,6 +10,9 @@ ppm/pde:
 ppm/pdt:
   url: git@github.com:maxcole/pdt-ppm
   path: ppm-repos:pdt-ppm
+ppm/gems:
+  url: git@github.com:maxcole/gems
+  path: ppm-repos:gems
 # rjayroach/ppm:
 #   url: git@github.com:maxcole/rjayroach-ppm
 #   path: ppm-repos:rjayroach-ppm

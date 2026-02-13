@@ -1,8 +1,8 @@
 # ppm.yml
 <% 
   require 'tmuxinator_project'
-  project = TmuxinatorProject.new(path: path)
-  project.root = project.root.join('repos')
+  project = TmuxinatorProject.new(path: path, name: 'ppm')
+  project.root = project.root.join('repos/gems')
 %>
 
 name: <%= project.name %>
@@ -13,34 +13,32 @@ attach: true
 tmux_command: tmux
 
 windows:
-  - bases:
-      root: <%= project.root.parent.join('bases') %>
+#   - ppm:
+#       root: <%= project.subdir('packages') %>
+#       layout: <%= project.layout(:claude) %>
+#       panes:
+#         -
+  - pim:
+      root: <%= project.subdir('pim') %>
       layout: <%= project.layout(:claude) %>
       panes:
         -
-  - ppm:
-      root: <%= project.subdir('ppm') %>
+  - pcs:
+      root: <%= project.subdir('pcs') %>
       layout: <%= project.layout(:claude) %>
       panes:
         -
         -
         -
-  - pde:
-      root: <%= project.subdir('pde-ppm') %>
+  - opcred:
+      root: <%= project.subdir('opcred') %>
       layout: <%= project.layout(:claude) %>
       panes:
         -
         - 
         -
-  - pdt:
-      root: <%= project.subdir('pdt-ppm') %>
-      layout: <%= project.layout(:claude) %>
-      panes:
-        -
-        -
-        -
-  - rjay:
-      root: <%= project.subdir('rjayroach-ppm') %>
+  - chorus:
+      root: <%= project.subdir('chorus') %>
       layout: <%= project.layout(:claude) %>
       panes:
         -

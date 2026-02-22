@@ -479,7 +479,7 @@ install() {
   done
 
   if $reinstall; then
-    remove "${expanded_packages[@]}"
+    remover "${expanded_packages[@]}"
   fi
   installer "${expanded_packages[@]}"
 }
@@ -566,48 +566,91 @@ installer() {
 
 # Remove one or more packages as requested by the user
 remove() {
-  collect_repos
+  # Expand repo-only arguments to all packages in that repo
+  local expanded_packages=()
+  for arg in "$@"; do
+    # Trailing slash means "all packages from repo" (e.g., "ppm/" -> all packages in ppm)
+    if [[ "$arg" == */ ]] && is_repo_name "${arg%/}"; then
+      arg="${arg%/}"
+      collect_packages "$arg"
 
-  requested_packages=("$@")
-  for pkg in "${requested_packages[@]}"; do
-
-    for repo in "${REPOS[@]}"; do
-      # Extract repo name (everything after last / and before .git)
-      local repo_name="${repo##*/}"      # Remove everything before last /
-      repo_name="${repo_name%.git}"      # Remove .git extension
-
-      pkg_dir=$PPM_DATA_HOME/$repo_name/packages/$pkg
-
-      # If the package name is not found then skip to the next
-      if [[ ! -d $pkg_dir ]]; then
-        continue
-      else
-        echo "Remove $repo_name/$pkg"
-        [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
+      if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+        echo "Error: No packages found in repo '$arg'"
+        exit 1
       fi
 
+      # Confirm unless -f flag
+      if ! $force; then
+        echo "About to remove all packages (${#PACKAGES[@]}) from $arg:"
+        printf '  %s\n' "${PACKAGES[@]}"
+        read -p "Continue? [y/N] " confirm
+        [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+      fi
+
+      expanded_packages+=("${PACKAGES[@]}")
+    else
+      expanded_packages+=("$arg")
+    fi
+  done
+
+  remover "${expanded_packages[@]}"
+}
+
+remover() {
+  collect_repos
+  requested_packages=("$@")
+
+  for pkg in "${requested_packages[@]}"; do
+    local package_repo=$(dirname "$pkg") package_name=$(basename "$pkg")
+    [[ "$pkg" == */* ]] && single_repo="true" || single_repo="false"
+
+    for repo in "${REPOS[@]}"; do
+      local repo_name=$(basename "$repo" .git)
+
+      # Skip unmatched repos if package is requested from a specific repo
+      [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
+
+      local pkg_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
+      [[ ! -d $pkg_dir ]] && continue
+      echo "Remove $repo_name/$package_name"
+
+      [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
+
+      # Phase 1: pre_remove hook
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
-          if type pre_remove &>/dev/null; then
-            pre_remove
+          type pre_remove &>/dev/null && pre_remove
+        )
+      fi
+
+      # Phase 2: unstow (home + OS-specific)
+      [[ -d $pkg_dir/home ]] && stow -D -d $pkg_dir -t $HOME home
+      [[ -n "${PPM_GROUP_ID:-}" && -d "$pkg_dir/$PPM_GROUP_ID" ]] && \
+        stow -D -d $pkg_dir -t $HOME "$PPM_GROUP_ID"
+
+      # Phase 3: space cleanup
+      if $has_installer; then
+        (
+          source "$pkg_dir/install.sh"
+          if type space_path &>/dev/null; then
+            local sp=$(space_path)
+            if [[ -d "$sp" ]]; then
+              [[ -d "$pkg_dir/space" ]] && stow -D -d $pkg_dir -t "$sp" space
+              type space_remove &>/dev/null && { pushd "$sp" >/dev/null; space_remove; popd >/dev/null; }
+              $force && rm -rf "$sp"
+            fi
           fi
         )
       fi
 
-      # Use stow to remove softlinks from the user's home directory
-      [[ -d $pkg_dir/home ]] && stow -D -d $pkg_dir -t $HOME home
-
+      # Phase 4: OS-specific remove + post_remove
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
-          func_name="remove_$(os)" # remove_linux or remove_macos
-          if type $func_name &>/dev/null; then
-            $func_name
-          fi
-          if type post_remove &>/dev/null; then
-            post_remove
-          fi
+          func_name="remove_$(os)"
+          type $func_name &>/dev/null && $func_name
+          type post_remove &>/dev/null && post_remove
         )
       fi
     done

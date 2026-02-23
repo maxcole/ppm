@@ -447,41 +447,36 @@ force_remove_conflicts() {
 }
 
 
-# Install one or more packages as requested by the user
-install() {
-  [[ "$(os)" == "macos" ]] && update_brew_if_needed
-
-  # Expand repo-only arguments to all packages in that repo
-  local expanded_packages=()
+# Expand repo-trailing-slash arguments into individual packages
+# Sets EXPANDED_PACKAGES array in caller's scope
+expand_packages() {
+  local verb="$1"; shift
+  EXPANDED_PACKAGES=()
   for arg in "$@"; do
-    # Trailing slash means "all packages from repo" (e.g., "ppm/" -> all packages in ppm)
     if [[ "$arg" == */ ]] && is_repo_name "${arg%/}"; then
       arg="${arg%/}"
       collect_packages "$arg"
-
-      if [[ ${#PACKAGES[@]} -eq 0 ]]; then
-        echo "Error: No packages found in repo '$arg'"
-        exit 1
-      fi
-
-      # Confirm unless -f flag
+      [[ ${#PACKAGES[@]} -eq 0 ]] && { echo "Error: No packages found in repo '$arg'"; exit 1; }
       if ! $force; then
-        echo "About to install all packages (${#PACKAGES[@]}) from $arg:"
+        echo "About to $verb all packages (${#PACKAGES[@]}) from $arg:"
         printf '  %s\n' "${PACKAGES[@]}"
         read -p "Continue? [y/N] " confirm
         [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
       fi
-
-      expanded_packages+=("${PACKAGES[@]}")
+      EXPANDED_PACKAGES+=("${PACKAGES[@]}")
     else
-      expanded_packages+=("$arg")
+      EXPANDED_PACKAGES+=("$arg")
     fi
   done
+}
 
-  if $reinstall; then
-    remover "${expanded_packages[@]}"
-  fi
-  installer "${expanded_packages[@]}"
+
+# Install one or more packages as requested by the user
+install() {
+  [[ "$(os)" == "macos" ]] && update_brew_if_needed
+  expand_packages "install" "$@"
+  $reinstall && remover "${EXPANDED_PACKAGES[@]}"
+  installer "${EXPANDED_PACKAGES[@]}"
 }
 
 installer() {
@@ -566,34 +561,8 @@ installer() {
 
 # Remove one or more packages as requested by the user
 remove() {
-  # Expand repo-only arguments to all packages in that repo
-  local expanded_packages=()
-  for arg in "$@"; do
-    # Trailing slash means "all packages from repo" (e.g., "ppm/" -> all packages in ppm)
-    if [[ "$arg" == */ ]] && is_repo_name "${arg%/}"; then
-      arg="${arg%/}"
-      collect_packages "$arg"
-
-      if [[ ${#PACKAGES[@]} -eq 0 ]]; then
-        echo "Error: No packages found in repo '$arg'"
-        exit 1
-      fi
-
-      # Confirm unless -f flag
-      if ! $force; then
-        echo "About to remove all packages (${#PACKAGES[@]}) from $arg:"
-        printf '  %s\n' "${PACKAGES[@]}"
-        read -p "Continue? [y/N] " confirm
-        [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
-      fi
-
-      expanded_packages+=("${PACKAGES[@]}")
-    else
-      expanded_packages+=("$arg")
-    fi
-  done
-
-  remover "${expanded_packages[@]}"
+  expand_packages "remove" "$@"
+  remover "${EXPANDED_PACKAGES[@]}"
 }
 
 remover() {
@@ -614,6 +583,7 @@ remover() {
       [[ ! -d $pkg_dir ]] && continue
       echo "Remove $repo_name/$package_name"
 
+      local has_installer
       [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
 
       # Phase 1: pre_remove hook
@@ -624,15 +594,16 @@ remover() {
         )
       fi
 
-      # Phase 2: unstow (home + OS-specific)
+      # Phase 2: unstow (main shell — persists state across repos)
       [[ -d $pkg_dir/home ]] && stow -D -d $pkg_dir -t $HOME home
       [[ -n "${PPM_GROUP_ID:-}" && -d "$pkg_dir/$PPM_GROUP_ID" ]] && \
         stow -D -d $pkg_dir -t $HOME "$PPM_GROUP_ID"
 
-      # Phase 3: space cleanup
+      # Phase 3: space cleanup + OS-specific remove + post_remove
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
+
           if type space_path &>/dev/null; then
             local sp=$(space_path)
             if [[ -d "$sp" ]]; then
@@ -641,13 +612,7 @@ remover() {
               $force && rm -rf "$sp"
             fi
           fi
-        )
-      fi
 
-      # Phase 4: OS-specific remove + post_remove
-      if $has_installer; then
-        (
-          source "$pkg_dir/install.sh"
           func_name="remove_$(os)"
           type $func_name &>/dev/null && $func_name
           type post_remove &>/dev/null && post_remove

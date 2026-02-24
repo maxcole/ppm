@@ -347,6 +347,8 @@ update() {
     return
   fi
 
+  local filter="${1:-}"
+
   collect_repos
 
   # Iterate over repos and clone to $PPM_DATA_HOME
@@ -357,6 +359,11 @@ update() {
 
     # Skip local paths that aren't git URLs
     if ! is_git_url "$repo"; then
+      continue
+    fi
+
+    # If a specific repo was requested, skip non-matching ones
+    if [[ -n "$filter" && "$repo_name" != "$filter" ]]; then
       continue
     fi
 

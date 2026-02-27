@@ -1,7 +1,7 @@
 # ppm.yml
 <% 
-  require 'tmuxinator_project'
-  project = TmuxinatorProject.new(path: path)
+  require 'chorus/tmuxinator'
+  project = Chorus::Tmuxinator.new(path: path)
   project.root = project.root.join('repos')
 %>
 

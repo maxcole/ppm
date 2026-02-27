@@ -546,7 +546,7 @@ installer() {
         fi
 
         if type "space_path" &>/dev/null; then
-          if ! command -v hub >/dev/null 2>&1; then
+          if ! command -v chorus >/dev/null 2>&1; then
             echo "WARN: Cannot install $repo_name/$package_name space. Run 'ppm install chorus'"
             continue
           fi

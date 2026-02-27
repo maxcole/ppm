@@ -1,2 +1,3 @@
 ---
-ppm: "spaces:ppm"
+- id: ppm
+  path: "spaces:ppm"

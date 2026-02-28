@@ -79,6 +79,7 @@ setup_deps() {
     sudo apt install curl git stow -y
   elif [[ "$(os)" == "macos" ]]; then
     setup_deps_macos
+    eval "$(/opt/homebrew/bin/brew shellenv zsh)"
     brew install git stow wget
   fi
 }

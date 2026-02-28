@@ -102,6 +102,13 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 ```bash
 ppm update ppm
 ```
+### Install on a remote host
+
+Copy your authorized_keys to the remote host
+
+```bash
+ssh-copy-id user@host
+```
 
 ## 1Password Integration
 

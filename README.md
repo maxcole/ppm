@@ -84,7 +84,13 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 Alternatively, set environment variables:
 ```bash
 export PPM_INSTALL_REPO=git@github.com:user/my-ppm
+```
+
+```bash
 export PPM_INSTALL_PACKAGES="chorus claude git nvim tmux zsh"
+```
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# pre-commit hook for ppm package repos
+# Auto-bumps patch version in package.yml for any changed package
+# Auto-creates package.yml if it doesn't exist
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(git rev-parse --toplevel)"
+
+# Source the metadata library
+# Look in repo's hooks/lib first, then fall back to ppm lib
+if [[ -f "$HOOK_DIR/lib/package-meta.sh" ]]; then
+  source "$HOOK_DIR/lib/package-meta.sh"
+elif [[ -f "$REPO_ROOT/hooks/lib/package-meta.sh" ]]; then
+  source "$REPO_ROOT/hooks/lib/package-meta.sh"
+else
+  echo "WARN: package-meta.sh not found, skipping version bump"
+  exit 0
+fi
+
+# Get list of staged files under packages/
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR | grep '^packages/' || true)
+
+[[ -z "$staged_files" ]] && exit 0
+
+# Extract unique package names from staged paths
+# packages/<name>/... → <name>
+changed_packages=$(echo "$staged_files" | cut -d'/' -f2 | sort -u)
+
+for pkg_name in $changed_packages; do
+  pkg_dir="$REPO_ROOT/packages/$pkg_name"
+  meta_file="$pkg_dir/package.yml"
+
+  # Skip if package.yml itself is already staged with changes
+  # (user manually edited version — respect that)
+  if echo "$staged_files" | grep -q "^packages/${pkg_name}/package.yml$"; then
+    # Check if the version line was actually changed
+    if git diff --cached -- "$meta_file" | grep -q '^[+-]version:'; then
+      echo "meta: ${pkg_name} — version manually set, skipping auto-bump"
+      continue
+    fi
+  fi
+
+  if [[ ! -f "$meta_file" ]]; then
+    # Bootstrap new package.yml
+    meta_bootstrap "$pkg_dir"
+    echo "meta: ${pkg_name} — created package.yml at 0.1.0"
+  else
+    # Bump patch version
+    new_version=$(meta_bump_patch "$pkg_dir")
+    echo "meta: ${pkg_name} — bumped to ${new_version}"
+  fi
+
+  # Stage the updated/created package.yml
+  git add "$meta_file"
+done

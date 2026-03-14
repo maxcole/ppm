@@ -73,10 +73,34 @@ os() {
 }
 
 
+arch() {
+  local arch
+  arch="$(uname -m)"
+  case "$arch" in
+    x86_64)        echo "amd64" ;;
+    aarch64|arm64) echo "arm64" ;;
+    *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+  esac
+}
+
+
+install_yq() {
+  if command -v yq >/dev/null 2>&1 && yq --version 2>&1 | grep -q 'mikefarah/yq'; then
+    return 0
+  fi
+
+  local url="https://github.com/mikefarah/yq/releases/latest/download/yq_linux_$(arch)"
+  mkdir -p "$BIN_DIR"
+  curl -fsSL "$url" -o "$BIN_DIR/yq"
+  chmod +x "$BIN_DIR/yq"
+}
+
+
 setup_deps() {
   if [[ "$(os)" == "linux" ]]; then
     setup_deps_linux
-    sudo apt install curl git stow yq -y
+    sudo apt install curl git stow -y
+    install_yq
   elif [[ "$(os)" == "macos" ]]; then
     setup_deps_macos
     eval "$(/opt/homebrew/bin/brew shellenv zsh)"

@@ -630,8 +630,8 @@ remover() {
 }
 
 
-# Output shell completions for zsh or bash
-completions() {
+# Output shell completion for zsh or bash
+completion() {
   local shell="${1:-zsh}"
 
   case "$shell" in
@@ -653,7 +653,7 @@ _ppm() {
         'show:Show package information'
         'path:Output path to a package directory'
         'cd:Change to a package directory'
-        'completions:Output shell completions'
+        'completion:Output shell completion'
         'package:Add a source repo and pull its contents'
     )
 
@@ -682,7 +682,7 @@ _ppm() {
                     update_opts=('ppm:Update ppm itself')
                     _describe 'target' update_opts
                     ;;
-                completions)
+                completion)
                     local -a shells
                     shells=('zsh' 'bash')
                     _describe 'shell' shells
@@ -717,7 +717,7 @@ compdef _ppm ppm
 EOF
       ;;
     bash)
-      echo "# Bash completions not yet implemented"
+      echo "# Bash completion not yet implemented"
       ;;
     *)
       echo "Error: Unknown shell '$shell'. Supported: zsh, bash" >&2
@@ -887,7 +887,7 @@ main() {
 
 # Skip main() setup for commands that don't need it
 case "${1:-}" in
-  completions) completions "${@:2}" ;;
+  completion) completion "${@:2}" ;;
   src) src "${@:2}" ;;
   package) package "${@:2}" ;;
   *) main "$@" ;;

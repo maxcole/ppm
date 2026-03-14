@@ -145,6 +145,8 @@ install_packages() {
   for pkg in "${packages[@]}"; do
     $PPM_BIN_FILE install "$pkg"
   done
+  # stow ppm.zsh and install ppm completions
+  $PPM_BIN_FILE install ppm/ppm
   echo -e "\n${GREEN}Installation complete!${NC}"
   echo -e "Open a new shell or run: ${CYAN}source ~/.zshrc${NC}"
 }

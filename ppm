@@ -26,8 +26,6 @@ PPM_DATA_HOME=$XDG_DATA_HOME/ppm
 PPM_LIB_DIR=$LIB_DIR/ppm
 
 # PPM files
-PPM_BIN_FILE=$BIN_DIR/ppm
-PPM_BIN_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
 # source lib files
@@ -326,14 +324,6 @@ collect_packages() {
 }
 
 
-# Update ppm itself by downloading from the source URL
-update_self() {
-  echo "Updating ppm..."
-  curl -fsSL -o "$PPM_BIN_FILE" "$PPM_BIN_URL"
-  chmod +x "$PPM_BIN_FILE"
-  echo "ppm updated successfully"
-}
-
 # Check if entry is a git URL (not a local path)
 is_git_url() {
   [[ "$1" == git@* || "$1" == *://* ]]
@@ -341,12 +331,6 @@ is_git_url() {
 
 # Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_DATA_HOME
 update() {
-  # Handle self-update
-  if [[ $# -gt 0 && "$1" == "ppm" ]]; then
-    update_self
-    return
-  fi
-
   local filter="${1:-}"
 
   collect_repos
@@ -676,11 +660,6 @@ _ppm() {
                     ;;
                 install|remove|show|path|cd)
                     _ppm_packages_available
-                    ;;
-                update)
-                    local -a update_opts
-                    update_opts=('ppm:Update ppm itself')
-                    _describe 'target' update_opts
                     ;;
                 completion)
                     local -a shells

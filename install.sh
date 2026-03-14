@@ -5,22 +5,21 @@ set -euo pipefail
 #
 # WHAT THIS SCRIPT DOES:
 #   1. Installs dependencies via apt (Linux) or Homebrew (macOS)
-#   2. Downloads the ppm script to ~/.local/bin/ppm
+#   2. Clones ppm repo to ~/.local/share/ppm/ppm and symlinks script to ~/.local/bin/ppm
 #   3. Clones your repo (if --repo provided) to ~/.local/share/ppm/<repo-name>
 #   4. Creates config files (ppm.conf, sources.list) in your repo's ppm package
 #   5. Symlinks config files to ~/.config/ppm/
 #   6. Runs 'ppm update' and 'ppm install' for specified packages
 #
 # FILES CREATED:
-#   ~/.local/bin/ppm                 - the ppm executable
+#   ~/.local/share/ppm/ppm/           - cloned ppm repo
+#   ~/.local/bin/ppm                 - symlink to repo's ppm script
 #   ~/.config/ppm/ppm.conf           - symlink to repo config
 #   ~/.config/ppm/sources.list       - symlink to repo sources
 #   ~/.local/share/ppm/<repo>/       - cloned repo (if --repo provided)
 #
 # EXTERNAL FETCHES:
-#   https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm
-#   https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/ppm.conf
-#   https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/sources.list
+#   https://github.com/maxcole/ppm.git (cloned to ~/.local/share/ppm/ppm)
 #   https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh (macOS only)
 #
 # SUDO USAGE:
@@ -55,7 +54,8 @@ XDG_DATA_HOME=$HOME/.local/share
 PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
 PPM_DATA_HOME=$XDG_DATA_HOME/ppm
 
-PPM_BASE_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main
+PPM_REPO_URL=https://github.com/maxcole/ppm.git
+PPM_REPO_DIR=$PPM_DATA_HOME/ppm
 PPM_USER_URL=https://raw.githubusercontent.com/maxcole/user-ppm/refs/heads/main
 PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_CONFIG_FILE=$PPM_CONFIG_HOME/ppm.conf
@@ -106,12 +106,11 @@ setup_deps_macos() {
 
 
 install_script() {
-  mkdir -p $BIN_DIR
-  if [ ! -f $PPM_BIN_FILE ]; then
-    curl -fsSL "$PPM_BASE_URL/ppm" -o $PPM_BIN_FILE
-    chmod +x $PPM_BIN_FILE
+  mkdir -p $BIN_DIR $PPM_DATA_HOME $PPM_CONFIG_HOME
+  if [[ ! -d "$PPM_REPO_DIR" ]]; then
+    git clone "$PPM_REPO_URL" "$PPM_REPO_DIR"
   fi
-  mkdir -p $PPM_DATA_HOME $PPM_CONFIG_HOME
+  ln -sf "$PPM_REPO_DIR/ppm" "$PPM_BIN_FILE"
 }
 
 

@@ -10,22 +10,22 @@ ppm-setup() {
 
 ppm-login() {
   local ssh=false
-  if [[ "$1" == "--ssh" ]]; then
-    ssh=true
-    shift
-  fi
+  local user=""
 
-  local user="$1"
-
-  # Allow the target user to access the socket
-  if $ssh; then
-    if [[ "$(os)" == "macos" ]]; then
-      chmod 777 "$(dirname "$SSH_AUTH_SOCK")"
-      chmod 666 "$SSH_AUTH_SOCK"
-    elif [[ "$(os)" == "linux" ]]; then
-      setfacl -m u:"$user":rw "$SSH_AUTH_SOCK"
-      setfacl -m u:"$user":x "$(dirname "$SSH_AUTH_SOCK")"
+  for arg in "$@"; do
+    if [[ "$arg" == "--ssh" ]]; then
+      ssh=true
+    else
+      user="$arg"
     fi
+  done
+
+  local sock_dir
+
+  if $ssh; then
+    sock_dir="$(dirname "$SSH_AUTH_SOCK")"
+    chmod 711 "$sock_dir"
+    chmod 666 "$SSH_AUTH_SOCK"
   fi
 
   if $ssh; then
@@ -35,13 +35,8 @@ ppm-login() {
   fi
 
   if $ssh; then
-    if [[ "$(os)" == "macos" ]]; then
-      chmod 700 "$(dirname "$SSH_AUTH_SOCK")"
-      chmod 600 "$SSH_AUTH_SOCK"
-    elif [[ "$(os)" == "linux" ]]; then
-      setfacl -x u:"$user" "$SSH_AUTH_SOCK"
-      setfacl -x u:"$user" "$(dirname "$SSH_AUTH_SOCK")"
-    fi
+    chmod 700 "$sock_dir"
+    chmod 600 "$SSH_AUTH_SOCK"
   fi
 }
 

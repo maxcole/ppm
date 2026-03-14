@@ -76,11 +76,11 @@ os() {
 setup_deps() {
   if [[ "$(os)" == "linux" ]]; then
     setup_deps_linux
-    sudo apt install curl git stow -y
+    sudo apt install curl git stow yq -y
   elif [[ "$(os)" == "macos" ]]; then
     setup_deps_macos
     eval "$(/opt/homebrew/bin/brew shellenv zsh)"
-    brew install git stow wget
+    brew install git stow wget yq
   fi
 }
 

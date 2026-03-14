@@ -47,6 +47,7 @@ EOF
 echo -e "${CYAN}Personal Package Manager${NC}"
 
 BIN_DIR=$HOME/.local/bin
+export PATH="$BIN_DIR:$PATH"
 
 XDG_CONFIG_HOME=$HOME/.config
 XDG_DATA_HOME=$HOME/.local/share
@@ -57,7 +58,6 @@ PPM_DATA_HOME=$XDG_DATA_HOME/ppm
 PPM_REPO_URL=https://github.com/maxcole/ppm.git
 PPM_REPO_DIR=$PPM_DATA_HOME/ppm
 PPM_USER_URL=https://raw.githubusercontent.com/maxcole/user-ppm/refs/heads/main
-PPM_BIN_FILE=$BIN_DIR/ppm
 PPM_CONFIG_FILE=$PPM_CONFIG_HOME/ppm.conf
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
@@ -105,16 +105,16 @@ setup_deps_macos() {
 }
 
 
-install_script() {
+install_ppm() {
   mkdir -p $BIN_DIR $PPM_DATA_HOME $PPM_CONFIG_HOME
   if [[ ! -d "$PPM_REPO_DIR" ]]; then
     git clone "$PPM_REPO_URL" "$PPM_REPO_DIR"
   fi
-  ln -sf "$PPM_REPO_DIR/ppm" "$PPM_BIN_FILE"
+  ln -sf "$PPM_REPO_DIR/ppm" "$BIN_DIR/ppm"
 }
 
 
-install_config() {
+install_ppm_configs() {
   local pkg_path=packages/ppm/home/.config/ppm
 
   for config_file in ppm.conf sources.list; do
@@ -130,10 +130,10 @@ install_config() {
 
 
 install_repo() {
-  $PPM_BIN_FILE src add --top $repo_url
-  $PPM_BIN_FILE update
+  ppm src add --top $repo_url
+  ppm update
   repo_name=$(basename "$repo_url" .git)
-  $PPM_BIN_FILE install -f $repo_name/ppm
+  ppm install -f $repo_name/ppm
 }
 
 
@@ -143,10 +143,10 @@ install_packages() {
     eval "$(/opt/homebrew/bin/brew shellenv)"
   fi
   for pkg in "${packages[@]}"; do
-    $PPM_BIN_FILE install "$pkg"
+    ppm install "$pkg"
   done
   # stow ppm.zsh and install ppm completions
-  $PPM_BIN_FILE install ppm/ppm
+  ppm install ppm/ppm
   echo -e "\n${GREEN}Installation complete!${NC}"
   echo -e "Open a new shell or run: ${CYAN}source ~/.zshrc${NC}"
 }
@@ -167,8 +167,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$script_only" == true ]]; then
-  install_script
-  install_config
+  install_ppm
+  install_ppm_configs
   exit 0
 fi
 
@@ -182,8 +182,8 @@ fi
 [[ "$skip_deps" == false ]] && setup_deps
 mkdir -p $HOME/.ssh
 ssh-keyscan github.com >> $HOME/.ssh/known_hosts 2>/dev/null
-install_script
-install_config
+install_ppm
+install_ppm_configs
 [[ -n "$repo_url" ]] && install_repo
-$PPM_BIN_FILE update
+ppm update
 install_packages "${packages[@]}"

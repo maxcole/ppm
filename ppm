@@ -28,131 +28,29 @@ PPM_LIB_DIR=$LIB_DIR/ppm
 # PPM files
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
-# source lib files
+# Resolve the repo directory (works through symlinks)
+_resolve_path() {
+  local path="$1"
+  while [[ -L "$path" ]]; do
+    local dir="$(cd "$(dirname "$path")" && pwd)"
+    path="$(readlink "$path")"
+    [[ "$path" != /* ]] && path="$dir/$path"
+  done
+  echo "$(cd "$(dirname "$path")" && pwd)"
+}
+PPM_REPO_DIR="$(_resolve_path "$0")"
+
+# Source ppm's own libraries
+for lib_file in "$PPM_REPO_DIR"/lib/*.sh; do
+  [[ -f "$lib_file" ]] && source "$lib_file"
+done
+
+# Source package-contributed libraries (e.g. from zsh package)
 if [[ -d "$PPM_LIB_DIR" ]]; then
   for lib_file in "$PPM_LIB_DIR"/*.sh; do
     [[ -f "$lib_file" ]] && source "$lib_file"
   done
 fi
-
-
-# Detect the CPU architecture
-arch() {
-  local arch=$(uname -m)
-
-  if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
-    echo "arm64"
-  else
-    echo "amd64"
-  fi
-}
-
-# Detect the OS
-os() {
-  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    echo "linux"
-  elif [[ "$OSTYPE" == "darwin"* ]]; then
-    echo "macos"
-  else
-    echo "unsupported"
-  fi
-}
-
-# search in file and add/remove as requested
-add_to_file() {
-  local file="$1" dir="$(dirname "$1")"
-  shift
-
-  [[ -d "$dir" ]] || mkdir -p $dir
-  [[ -f "$file" ]] || touch "$file"
-
-  for string in "$@"; do
-    _string_in_file "$string" "$file" || echo "$string" >> "$file"
-  done
-}
-
-remove_from_file() {
-  local file="$1"
-  shift
-  [[ -f "$file" ]] || return 0
-
-  for string in "$@"; do
-    if _string_in_file "$string" "$file"; then
-      _sed_inplace "/^$(printf '%s' "$string" | sed 's/[^^]/[&]/g; s/\^/\\^/g')$/d" "$file"
-    fi
-  done
-}
-
-_string_in_file() {
-  local string="$1" file="$2"
-  grep -qxF "$string" "$file" 2>/dev/null
-}
-
-_sed_inplace() {
-  local pattern="$1" file="$2"
-
-  # Resolve symlink to actual file
-  if [[ -L "$file" ]]; then
-    local link_target=$(readlink "$file")
-    if [[ "$link_target" == /* ]]; then
-      file="$link_target"
-    else
-      file="$(dirname "$file")/$link_target"
-    fi
-  fi
-
-  if [[ "$(os)" == "macos" ]]; then
-    sed -i '' "$pattern" "$file"
-  else
-    sed -i "$pattern" "$file"
-  fi
-}
-
-# Creates symlinks in target_dir for each entry in the list
-create_symlinks() {
-  local target_dir="$1"
-  shift
-  local entries=("$@")
-
-  for entry in "${entries[@]}"; do
-    local name=$(basename "$entry")
-    local link_path="$target_dir/$name"
-    if [ ! -L "$link_path" ]; then
-      ln -s "$entry" "$link_path"
-    fi
-  done
-}
-
-
-# Update the homebrew cache periodically
-update_brew_if_needed() {
-  local cache_duration="${HOMEBREW_UPDATE_CACHE_DURATION:-86400}" # default is 24 hours in seconds
-  local cache_file="$PPM_CACHE_HOME/brew_last_update"
-
-  if [[ ! -f "$cache_file" ]] || [[ $(($(date +%s) - $(cat "$cache_file"))) -gt $cache_duration ]]; then
-    [[ ! -d $PPM_CACHE_HOME ]] && mkdir -p $PPM_CACHE_HOME
-    brew update
-    date +%s > "$cache_file"
-  fi
-}
-
-
-# Install dependencies using the OS specific package manager (apt or homebrew)
-install_dep() {
-  if [[ "$(os)" == "linux" ]]; then
-    sudo apt install "$@" -y
-  elif [[ "$(os)" == "macos" ]]; then
-    local cask_flag=""
-    [[ "${1:-}" == "--cask" ]] && { cask_flag="--cask"; shift; }
-    for dep in "$@"; do
-      if ! brew list $cask_flag "$dep" &>/dev/null; then
-        brew install $cask_flag "$dep"
-      elif brew outdated $cask_flag --quiet | grep -q "^${dep}$"; then
-        brew upgrade $cask_flag "$dep"
-      fi
-    done
-  fi
-}
 
 
 # Manage sources in sources.list
@@ -167,7 +65,7 @@ src() {
 
       if [[ $# -eq 0 ]]; then
         echo "Error: src add requires a git URL"
-        echo "Usage: ppm src add [--top] <git-url>"
+        echo "Usage: ppm src add [--top] <git-url> [alias]"
         exit 1
       fi
 
@@ -179,40 +77,49 @@ src() {
       # Create sources.list if it doesn't exist
       touch "$PPM_SOURCES_FILE"
 
-      # Check if URL already exists in sources.list
-      if grep -qxF "$url" "$PPM_SOURCES_FILE" 2>/dev/null; then
+      local alias="${2:-$(basename "$url" .git)}"
+      local entry="$url  $alias"
+
+      # Check if URL already exists in sources.list (match first column)
+      if awk '{print $1}' "$PPM_SOURCES_FILE" 2>/dev/null | grep -qxF "$url"; then
         echo "Source already exists: $url"
         return 0
       fi
 
-      # Add URL to sources.list
+      # Add entry to sources.list
       if $top; then
         local tmp=$(mktemp)
-        echo "$url" > "$tmp"
+        echo "$entry" > "$tmp"
         cat "$PPM_SOURCES_FILE" >> "$tmp"
         mv "$tmp" "$PPM_SOURCES_FILE"
       else
-        echo "$url" >> "$PPM_SOURCES_FILE"
+        echo "$entry" >> "$PPM_SOURCES_FILE"
       fi
-      echo "Added source: $url"
+      echo "Added source: $url ($alias)"
       ;;
 
     remove)
       if [[ $# -eq 0 ]]; then
-        echo "Error: src remove requires a git URL"
-        echo "Usage: ppm src remove <git-url>"
+        echo "Error: src remove requires a URL or alias"
+        echo "Usage: ppm src remove <url-or-alias>"
         exit 1
       fi
 
-      local url="$1"
+      local target="$1"
+      local removed=false
 
-      if ! _string_in_file "$url" "$PPM_SOURCES_FILE"; then
-        echo "Source not found: $url"
-        return 1
+      # Match on either URL (first column) or alias (second column)
+      if grep -q "^${target}\b\|[[:space:]]${target}$" "$PPM_SOURCES_FILE" 2>/dev/null; then
+        _sed_inplace "/^${target}[[:space:]]/d;/[[:space:]]${target}$/d" "$PPM_SOURCES_FILE"
+        removed=true
       fi
 
-      remove_from_file "$PPM_SOURCES_FILE" "$url"
-      echo "Removed source: $url"
+      if $removed; then
+        echo "Removed source: $target"
+      else
+        echo "Source not found: $target"
+        return 1
+      fi
       ;;
 
     list)
@@ -225,9 +132,9 @@ src() {
 
     *)
       echo "Usage: ppm src <add|remove|list>"
-      echo "  add [--top] <git-url>  Add a source repository"
-      echo "  remove <git-url>       Remove a source repository"
-      echo "  list                   List configured sources"
+      echo "  add [--top] <git-url> [alias]  Add a source repository"
+      echo "  remove <url-or-alias>          Remove a source repository"
+      echo "  list                           List configured sources"
       [[ -z "$subcommand" ]] || exit 1
       ;;
   esac
@@ -244,8 +151,6 @@ package() {
 
   local url="$1" user_ppm_url=https://github.com/maxcole/user-ppm.git
   local repo_name=$(basename "$url" .git)
-  # local repo_name="${url##*/}"
-  # repo_name="${repo_name%.git}"
   local repo_dir="$PPM_DATA_HOME/$repo_name"
 
   src add --top "$url"
@@ -277,72 +182,19 @@ package() {
 }
 
 
-collect_repos() {
-  REPOS=()
-
-  # Read file into array, skipping empty lines and comments
-  while IFS= read -r line || [ -n "$line" ]; do
-    # Skip empty lines and comments
-    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    REPOS+=("$line")
-  done < "$PPM_SOURCES_FILE"
-}
-
-
-# Check if argument is a known repo name (exists in PPM_DATA_HOME)
-is_repo_name() {
-  local name="$1"
-  [[ -d "$PPM_DATA_HOME/$name/packages" ]]
-}
-
-
-# Collect packages, optionally filtered to specific repos
-# Usage: collect_packages [repo1 repo2 ...]
-# If no args, collects from all repos
-collect_packages() {
-  local filter_repos=("$@")
-  PACKAGES=()
-
-  # If no filter provided, get all repo names from sources
-  if [[ ${#filter_repos[@]} -eq 0 ]]; then
-    collect_repos
-    for repo in "${REPOS[@]}"; do
-      local repo_name="${repo##*/}"
-      repo_name="${repo_name%.git}"
-      filter_repos+=("$repo_name")
-    done
-  fi
-
-  for repo_name in "${filter_repos[@]}"; do
-    local repo_path="$PPM_DATA_HOME/$repo_name/packages"
-    [[ -d "$repo_path" ]] || continue
-
-    while IFS= read -r dir; do
-      PACKAGES+=("$repo_name/$(basename "$dir")")
-    done < <(ls -d "$repo_path"/*/ 2>/dev/null)
-  done
-}
-
-
-# Check if entry is a git URL (not a local path)
-is_git_url() {
-  [[ "$1" == git@* || "$1" == *://* ]]
-}
-
 # Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_DATA_HOME
 update() {
   local filter="${1:-}"
+  local all_updated=true
 
   collect_repos
 
-  # Iterate over repos and clone to $PPM_DATA_HOME
-  for repo in "${REPOS[@]}"; do
-    # Extract repo name (everything after last / and before .git)
-    local repo_name="${repo##*/}"      # Remove everything before last /
-    repo_name="${repo_name%.git}"      # Remove .git extension
+  for i in "${!REPO_URLS[@]}"; do
+    local repo_url="${REPO_URLS[$i]}"
+    local repo_name="${REPO_NAMES[$i]}"
 
     # Skip local paths that aren't git URLs
-    if ! is_git_url "$repo"; then
+    if ! is_git_url "$repo_url"; then
       continue
     fi
 
@@ -352,21 +204,25 @@ update() {
     fi
 
     if [ ! -d $PPM_DATA_HOME/$repo_name ]; then
-      echo "Cloning: $repo"
-      git clone $repo $PPM_DATA_HOME/$repo_name
+      echo "Cloning: $repo_url"
+      git clone $repo_url $PPM_DATA_HOME/$repo_name
     else
       # Check for uncommitted changes or untracked files
       if ! git -C "$PPM_DATA_HOME/$repo_name" diff --quiet || \
          ! git -C "$PPM_DATA_HOME/$repo_name" diff --cached --quiet || \
          [[ -n $(git -C "$PPM_DATA_HOME/$repo_name" status --porcelain) ]]; then
         echo "Skipping $repo_name: has uncommitted changes. Please commit or stash them first."
+        all_updated=false
         continue
       fi
 
+      debug "Pulling latest for $repo_name"
       echo "Updating: $repo_name"
       git -C "$PPM_DATA_HOME/$repo_name" pull
     fi
   done
+
+  $all_updated || return 1
 }
 
 
@@ -383,91 +239,14 @@ list() {
 }
 
 
-# Stow a package subdirectory and collect files for ignore_args
-# Requires ignore_args array to be defined in caller's scope
-stow_subdir() {
-  local pkg_dir="$1" subdir="$2"
-  local full_path="$pkg_dir/$subdir"
-
-  [[ -d "$full_path" ]] || return 0
-
-  # If force mode, remove conflicting files first
-  $force && force_remove_conflicts "$full_path"
-
-  stow --no-folding ${ignore_args[@]+"${ignore_args[@]}"} -d "$pkg_dir" -t "$HOME" "$subdir"
-
-  while IFS= read -r file; do
-    if [[ -n "$file" ]]; then
-      local escaped="${file//./\\.}"
-      ignore_args+=("--ignore=^${escaped}\$")
-    fi
-  done < <(package_links "$full_path")
-}
-
-
-package_links() {
-  local path="$1"
-  find "$path" -type f | while read -r file; do
-    echo "${file#$path/}"
-  done
-}
-
-
-# Remove files from $HOME that would conflict with stow
-# Requires ignore_args array to be defined in caller's scope
-force_remove_conflicts() {
-  local full_path="$1"
-
-  while IFS= read -r file; do
-    [[ -z "$file" ]] && continue
-
-    # Check if this file is in ignore_args (already stowed from previous subdir)
-    local escaped="${file//./\\.}"
-    local is_ignored=false
-    if [[ ${#ignore_args[@]} -gt 0 ]]; then
-      for arg in "${ignore_args[@]}"; do
-        [[ "$arg" == "--ignore=^${escaped}\$" ]] && { is_ignored=true; break; }
-      done
-    fi
-
-    # Remove the file from $HOME if it exists and isn't ignored
-    if ! $is_ignored && [[ -e "$HOME/$file" || -L "$HOME/$file" ]]; then
-      rm -f "$HOME/$file"
-    fi
-  done < <(package_links "$full_path")
-}
-
-
-# Expand repo-trailing-slash arguments into individual packages
-# Sets EXPANDED_PACKAGES array in caller's scope
-expand_packages() {
-  local verb="$1"; shift
-  EXPANDED_PACKAGES=()
-  for arg in "$@"; do
-    if [[ "$arg" == */ ]] && is_repo_name "${arg%/}"; then
-      arg="${arg%/}"
-      collect_packages "$arg"
-      [[ ${#PACKAGES[@]} -eq 0 ]] && { echo "Error: No packages found in repo '$arg'"; exit 1; }
-      if ! $force; then
-        echo "About to $verb all packages (${#PACKAGES[@]}) from $arg:"
-        printf '  %s\n' "${PACKAGES[@]}"
-        read -p "Continue? [y/N] " confirm
-        [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
-      fi
-      EXPANDED_PACKAGES+=("${PACKAGES[@]}")
-    else
-      EXPANDED_PACKAGES+=("$arg")
-    fi
-  done
-}
-
-
 # Install one or more packages as requested by the user
 install() {
+  update_ppm_if_needed
   [[ "$(os)" == "macos" ]] && update_brew_if_needed
   expand_packages "install" "$@"
   $reinstall && remover "${EXPANDED_PACKAGES[@]}"
   installer "${EXPANDED_PACKAGES[@]}"
+  flush_user_messages
 }
 
 installer() {
@@ -479,9 +258,8 @@ installer() {
     # Is the package requested from a specific repo (ppm install repo/pkg)
     [[ "$pkg" == */* ]] && single_repo="true" || single_repo="false"
 
-    for repo in "${REPOS[@]}"; do
-      # Extract repo name (everything after last / and before .git)
-      local repo_name=$(basename "$repo" .git)
+    for i in "${!REPO_URLS[@]}"; do
+      local repo_name="${REPO_NAMES[$i]}"
 
       # Skip unmatched repos if package is requested from a specific repo
       [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
@@ -489,6 +267,8 @@ installer() {
       # If the package is not found in this repo then skip to the next repo
       package_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
       [[ ! -d $package_dir ]] && continue
+      debug "Found $package_name in repo $repo_name"
+      PPM_CURRENT_PACKAGE="$repo_name/$package_name"
       echo "Install $repo_name/$package_name"
 
       # No installer - just stow and continue
@@ -516,7 +296,7 @@ installer() {
       stow_subdir "$package_dir" "home"
       [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
 
-      # Post-install, OS-specific install, and space setup
+      # Post-install and OS-specific install
       (
         source "$package_dir/install.sh"
 
@@ -528,22 +308,6 @@ installer() {
         if type post_install &>/dev/null && [[ -z "$config_flag" ]]; then
           post_install
         fi
-
-        if type "space_path" &>/dev/null; then
-          if ! command -v chorus >/dev/null 2>&1; then
-            echo "WARN: Cannot install $repo_name/$package_name space. Run 'ppm install chorus'"
-            continue
-          fi
-          mkdir -p $(space_path)
-          if [[ -d $package_dir/space ]]; then
-            stow -d $package_dir -t $(space_path) space
-          fi
-          if type "space_install" &>/dev/null; then
-            pushd $(space_path) > /dev/null
-            space_install
-            popd > /dev/null
-          fi
-        fi
       )
     done
   done
@@ -554,6 +318,7 @@ installer() {
 remove() {
   expand_packages "remove" "$@"
   remover "${EXPANDED_PACKAGES[@]}"
+  flush_user_messages
 }
 
 remover() {
@@ -564,8 +329,8 @@ remover() {
     local package_repo=$(dirname "$pkg") package_name=$(basename "$pkg")
     [[ "$pkg" == */* ]] && single_repo="true" || single_repo="false"
 
-    for repo in "${REPOS[@]}"; do
-      local repo_name=$(basename "$repo" .git)
+    for i in "${!REPO_URLS[@]}"; do
+      local repo_name="${REPO_NAMES[$i]}"
 
       # Skip unmatched repos if package is requested from a specific repo
       [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
@@ -590,19 +355,10 @@ remover() {
       [[ -n "${PPM_GROUP_ID:-}" && -d "$pkg_dir/$PPM_GROUP_ID" ]] && \
         stow -D -d $pkg_dir -t $HOME "$PPM_GROUP_ID"
 
-      # Phase 3: space cleanup + OS-specific remove + post_remove
+      # Phase 3: OS-specific remove + post_remove
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
-
-          if type space_path &>/dev/null; then
-            local sp=$(space_path)
-            if [[ -d "$sp" ]]; then
-              [[ -d "$pkg_dir/space" ]] && stow -D -d $pkg_dir -t "$sp" space
-              type space_remove &>/dev/null && { pushd "$sp" >/dev/null; space_remove; popd >/dev/null; }
-              $force && rm -rf "$sp"
-            fi
-          fi
 
           func_name="remove_$(os)"
           type $func_name &>/dev/null && $func_name
@@ -629,7 +385,7 @@ _ppm() {
 
     subcommands=(
         'src:Manage source repositories (add, remove, list)'
-        'update:Update repositories (or "ppm update ppm" to update ppm itself)'
+        'update:Update repositories'
         'list:List available packages'
         'ls:List available packages (alias for list)'
         'install:Install one or more packages'
@@ -722,8 +478,8 @@ show() {
 
   local found=false
 
-  for repo in "${REPOS[@]}"; do
-    local repo_name=$(basename "$repo" .git)
+  for i in "${!REPO_URLS[@]}"; do
+    local repo_name="${REPO_NAMES[$i]}"
 
     # Skip unmatched repos if package is requested from a specific repo
     [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
@@ -799,8 +555,8 @@ path() {
 
   local found_paths=()
 
-  for repo in "${REPOS[@]}"; do
-    local repo_name=$(basename "$repo" .git)
+  for i in "${!REPO_URLS[@]}"; do
+    local repo_name="${REPO_NAMES[$i]}"
 
     # Skip unmatched repos if package is requested from a specific repo
     [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
@@ -850,6 +606,7 @@ main() {
       -f) force=true; force_flag="-f" ;;
       -r) reinstall=true; reinstall_flag="-r" ;;
       -s) skip_deps=true; skip_deps_flag="-s" ;;
+      --debug) PPM_DEBUG=true ;;
       *) echo "Unknown flag: $1"; exit 1 ;;
     esac
     shift

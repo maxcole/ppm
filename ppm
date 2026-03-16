@@ -124,7 +124,20 @@ src() {
 
     list)
       if [[ -f "$PPM_SOURCES_FILE" ]]; then
-        cat "$PPM_SOURCES_FILE"
+        while IFS= read -r line || [[ -n "$line" ]]; do
+          [[ -z "$line" ]] && continue
+          local alias="${line##* }"
+          local repo_dir="$PPM_DATA_HOME/$alias"
+          local status="missing"
+          if [[ -d "$repo_dir/.git" ]]; then
+            if [[ -z "$(git -C "$repo_dir" status --porcelain 2>/dev/null)" ]]; then
+              status="clean"
+            else
+              status="dirty"
+            fi
+          fi
+          printf "%s  %s\n" "$line" "$status"
+        done < "$PPM_SOURCES_FILE"
       else
         echo "No sources configured"
       fi
@@ -421,7 +434,7 @@ remover() {
       if $has_installer; then
         (
           source "$pkg_dir/install.sh"
-          type pre_remove &>/dev/null && pre_remove
+          type pre_remove &>/dev/null && pre_remove || true
         )
       fi
 
@@ -436,8 +449,8 @@ remover() {
           source "$pkg_dir/install.sh"
 
           func_name="remove_$(os)"
-          type $func_name &>/dev/null && $func_name
-          type post_remove &>/dev/null && post_remove
+          type $func_name &>/dev/null && $func_name || true
+          type post_remove &>/dev/null && post_remove || true
         )
       fi
 

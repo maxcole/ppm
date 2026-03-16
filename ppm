@@ -278,19 +278,27 @@ installer() {
         continue
       fi
 
-      # Has installer - handle dependencies and pre_install
-      (
-        source "$package_dir/install.sh"
-        if ! $skip_deps && type dependencies &>/dev/null; then
-          deps=$(dependencies)
+      # Handle dependencies (from package.yml, fallback to install.sh)
+      if ! $skip_deps; then
+        local deps
+        deps=$(resolve_package_deps "$package_dir")
+        if [[ -n "$deps" ]]; then
           for dep in $deps; do
+            debug "Dependency: $package_name requires $dep"
             "$0" "installer" ${config_flag:+"$config_flag"} ${force_flag:+"$force_flag"} ${skip_deps_flag:+"$skip_deps_flag"} "$dep"
           done
         fi
-        if type pre_install &>/dev/null && [[ -z "$config_flag" ]]; then
-          pre_install
-        fi
-      )
+      fi
+
+      # pre_install hook
+      if [[ -f "$package_dir/install.sh" ]]; then
+        (
+          source "$package_dir/install.sh"
+          if type pre_install &>/dev/null && [[ -z "$config_flag" ]]; then
+            pre_install
+          fi
+        )
+      fi
 
       # Stow files (must be in main shell to persist ignore_args across repos)
       stow_subdir "$package_dir" "home"
@@ -491,19 +499,22 @@ show() {
     echo "Package: $repo_name/$package_name"
     echo ""
 
-    # Show dependencies if install.sh exists
-    if [[ -f "$package_dir/install.sh" ]]; then
-      (
-        source "$package_dir/install.sh"
-        if type dependencies &>/dev/null; then
-          echo "Dependencies:"
-          deps=$(dependencies)
-          for dep in $deps; do
-            echo "  - $dep"
-          done
-          echo ""
-        fi
-      )
+    # Show version
+    local version
+    version=$(meta_version "$package_dir")
+    if [[ -n "$version" ]]; then
+      echo "Version: $version"
+    fi
+
+    # Show dependencies
+    local deps
+    deps=$(resolve_package_deps "$package_dir")
+    if [[ -n "$deps" ]]; then
+      echo "Dependencies:"
+      for dep in $deps; do
+        echo "  - $dep"
+      done
+      echo ""
     fi
 
     # Show home tree if it exists

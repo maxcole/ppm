@@ -25,10 +25,10 @@ This repo (`ppm/`) contains:
 
 ## Package Structure
 
-Each package is a directory under `<repo>/packages/<name>/`:
+Each package is a directory under `<repo>/packages/<n>/`:
 
 ```
-packages/<name>/
+packages/<n>/
   package.yml     # metadata: version, author, depends
   install.sh      # optional: pre/post_install hooks, OS-specific install
   home/           # optional: stow target → $HOME
@@ -64,12 +64,18 @@ post_remove()      # runs after unstow
 
 Packages should NOT define a `dependencies()` function — use `package.yml` `depends` instead.
 
+Available functions packages can call from their hooks:
+- `install_dep <pkg...>` — install system packages via apt (Linux) or brew (macOS)
+- `debug "message"` — log debug info (visible with `--debug` flag)
+- `user_message "message"` — queue a message for the user (displayed after install completes). Supports `\n` for line breaks. Auto-prefixed with `[repo/package]`.
+- `ppm_fail "message"` — signal a non-fatal install failure. Prints to stderr immediately and queues for end-of-run summary. Caller should `return` after calling.
+
 ## Key Files
 
 - `~/.config/ppm/sources.list` — repo URLs + aliases (two columns)
 - `~/.config/ppm/ppm.conf` — configuration variables
 - `~/.config/ppm/ppm.local.conf` — machine-local config (not committed)
-- `~/.local/share/ppm/.installed.yml` — tracks installed packages
+- `~/.local/share/ppm/.installed/<repo>/<pkg>.yml` — per-package install tracker (version, timestamp, stowed files)
 - `~/.local/lib/ppm/*.sh` — package-contributed library extensions
 - `~/.cache/ppm/` — cache files (brew/ppm update timestamps)
 
@@ -79,7 +85,7 @@ Repos in `sources.list` are processed in order. When a package exists in multipl
 
 ## Dependencies
 
-- `yq` (mikefarah/yq) — for YAML parsing of package.yml and .installed.yml
+- `yq` (mikefarah/yq) — for YAML parsing of package.yml and tracker files
 - `stow` — GNU Stow for symlink management
 - `git` — repo cloning and updates
 
@@ -95,12 +101,12 @@ Plans are in `chorus/units/`. Follow the Chorus methodology:
 
 ```
 lib/
-  core.sh    # os(), arch(), file utils, debug(), user_message()
-  brew.sh    # update_brew_if_needed(), install_dep()
-  repo.sh    # collect_repos(), collect_packages(), update_ppm_if_needed()
-  stow.sh    # stow_subdir(), package_links(), force_remove_conflicts()
-  meta.sh    # meta_depends(), meta_version(), installed tracking
-  graph.sh   # resolve_deps(), find_package_dir(), topo sort
+  core.sh      # os(), arch(), file utils, install_dep(), debug(), user_message(), ppm_fail()
+  update.sh    # update_brew_if_needed(), update_ppm_if_needed()
+  repo.sh      # collect_repos(), collect_packages()
+  stow.sh      # stow_subdir(), package_links(), force_remove_conflicts()
+  meta.sh      # meta_depends(), meta_version(), installed tracking (per-package .yml files)
+  graph.sh     # resolve_deps(), find_package_dir(), topo sort (production tier)
 ```
 
 Sourcing order in `ppm`:

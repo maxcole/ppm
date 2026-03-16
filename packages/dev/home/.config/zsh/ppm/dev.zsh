@@ -1,4 +1,4 @@
-# ppm-dev.zsh
+# ppm/dev.zsh
 
 ppm-setup() {
   local user="$1"
@@ -125,7 +125,58 @@ ppm-user-add() {
 
   echo "Created user '$userid'"
 
+  # Copy SSH authorized_keys from current user
+  local src="$HOME/.ssh/authorized_keys"
+  if [[ -f "$src" ]]; then
+    local dest
+    if [[ "$(os)" == "macos" ]]; then
+      dest="/Users/$userid/.ssh"
+    else
+      dest="/home/$userid/.ssh"
+    fi
+    sudo mkdir -p "$dest"
+    sudo cp "$src" "$dest/authorized_keys"
+    sudo chown -R "$userid":"$(id -gn "$userid")" "$dest"
+    sudo chmod 700 "$dest"
+    sudo chmod 600 "$dest/authorized_keys"
+    echo "Copied authorized_keys to $userid"
+  fi
+
   [[ "$with_sudo" == true ]] && _ppm_user_sudo "$userid"
+}
+
+# Convert ppm repo remotes from HTTPS to SSH git URLs
+# Usage: ppm-repo-update
+ppm-repo-update() {
+  local ppm_dir="${XDG_DATA_HOME:-$HOME/.local/share}/ppm"
+  local repo url ssh_url branch
+
+  for repo in "$ppm_dir"/*/; do
+    [[ -d "$repo/.git" ]] || continue
+
+    url=$(git -C "$repo" remote get-url origin 2>/dev/null) || continue
+    branch=$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null) || continue
+
+    if [[ "$url" == https://github.com/* ]]; then
+      # https://github.com/user/repo[.git] -> git@github.com:user/repo.git
+      ssh_url="${url#https://github.com/}"
+      ssh_url="${ssh_url%.git}"
+      ssh_url="git@github.com:${ssh_url}.git"
+
+      echo "${repo##$ppm_dir/}: $url -> $ssh_url"
+      git -C "$repo" remote set-url origin "$ssh_url"
+      git -C "$repo" branch --set-upstream-to="origin/$branch" "$branch"
+
+      # Update sources.list if it has the HTTPS URL
+      local sources="${XDG_CONFIG_HOME:-$HOME/.config}/ppm/sources.list"
+      if [[ -f "$sources" ]] && grep -qF "$url" "$sources"; then
+        sed -i "s|${url}|${ssh_url}|g" "$sources"
+        echo "  updated sources.list"
+      fi
+    else
+      echo "${repo##$ppm_dir/}: already SSH"
+    fi
+  done
 }
 
 # Remove a test user

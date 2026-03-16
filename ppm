@@ -229,7 +229,32 @@ update() {
 # List the packages found in the cached repositories
 # Optionally filter by a substring pattern
 list() {
-  local filter="${1:-}"
+  local filter="${1:-}" installed_only=false
+
+  if [[ "$filter" == "--installed" ]]; then
+    installed_only=true
+    filter="${2:-}"
+  fi
+
+  if $installed_only; then
+    if [[ ! -d "$PPM_INSTALLED_DIR" ]]; then
+      echo "No packages installed (or tracking not yet enabled)"
+      return
+    fi
+    for tracker in "$PPM_INSTALLED_DIR"/*/*.yml; do
+      [[ -f "$tracker" ]] || continue
+      local pkg_name="${tracker%.yml}"
+      pkg_name="${pkg_name#$PPM_INSTALLED_DIR/}"
+      local version
+      version=$(yq -r '.version // "?"' "$tracker" 2>/dev/null)
+      local line="$pkg_name  $version"
+      if [[ -z "$filter" ]] || [[ "$line" == *"$filter"* ]]; then
+        echo "$line"
+      fi
+    done
+    return
+  fi
+
   collect_packages
   for pkg in "${PACKAGES[@]}"; do
     if [[ -z "$filter" ]] || [[ "$pkg" == *"$filter"* ]]; then
@@ -271,10 +296,20 @@ installer() {
       PPM_CURRENT_PACKAGE="$repo_name/$package_name"
       echo "Install $repo_name/$package_name"
 
-      # No installer - just stow and continue
+      # No installer - just stow, track, and continue
       if [[ ! -f "$package_dir/install.sh" ]]; then
         stow_subdir "$package_dir" "home"
         [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
+
+        local stowed_files=""
+        [[ -d "$package_dir/home" ]] && stowed_files=$(package_links "$package_dir/home")
+        if [[ -n "${PPM_GROUP_ID:-}" && -d "$package_dir/$PPM_GROUP_ID" ]]; then
+          local group_files
+          group_files=$(package_links "$package_dir/$PPM_GROUP_ID")
+          [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
+        fi
+        meta_cleanup_stale "$repo_name" "$package_name" "$package_dir" "$stowed_files"
+        meta_mark_installed "$repo_name" "$package_name" "$package_dir" "$stowed_files"
         continue
       fi
 
@@ -304,6 +339,18 @@ installer() {
       stow_subdir "$package_dir" "home"
       [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
 
+      # Collect stowed files for tracking
+      local stowed_files=""
+      [[ -d "$package_dir/home" ]] && stowed_files=$(package_links "$package_dir/home")
+      if [[ -n "${PPM_GROUP_ID:-}" && -d "$package_dir/$PPM_GROUP_ID" ]]; then
+        local group_files
+        group_files=$(package_links "$package_dir/$PPM_GROUP_ID")
+        [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
+      fi
+
+      # Clean up stale files from previous version
+      meta_cleanup_stale "$repo_name" "$package_name" "$package_dir" "$stowed_files"
+
       # Post-install and OS-specific install
       (
         source "$package_dir/install.sh"
@@ -317,6 +364,9 @@ installer() {
           post_install
         fi
       )
+
+      # Write tracker after all phases succeed
+      meta_mark_installed "$repo_name" "$package_name" "$package_dir" "$stowed_files"
     done
   done
 }
@@ -373,6 +423,9 @@ remover() {
           type post_remove &>/dev/null && post_remove
         )
       fi
+
+      # Phase 4: remove tracker
+      meta_mark_removed "$repo_name" "$package_name"
     done
   done
 }
@@ -517,6 +570,26 @@ show() {
       echo ""
     fi
 
+    # Show installed status
+    if meta_is_installed "$repo_name" "$package_name"; then
+      local inst_version
+      inst_version=$(meta_installed_version "$repo_name" "$package_name")
+      echo "Status: installed (v${inst_version})"
+
+      local inst_files
+      inst_files=$(meta_installed_files "$repo_name" "$package_name")
+      if [[ -n "$inst_files" ]]; then
+        echo ""
+        echo "Stowed files:"
+        echo "$inst_files" | while IFS= read -r f; do
+          [[ -n "$f" ]] && echo "  ~/$f"
+        done
+      fi
+    else
+      echo "Status: not installed"
+    fi
+    echo ""
+
     # Show home tree if it exists
     if [[ -d "$package_dir/home" ]]; then
       echo "home/"
@@ -611,6 +684,7 @@ main() {
   # Command aliases
   [[ "$command" == "ls" ]] && command="list"
 
+  local passthrough_args=()
   while [[ "$#" -gt 0 && "$1" == -* ]]; do
     case "$1" in
       -c) config=true; config_flag="-c" ;;
@@ -618,10 +692,12 @@ main() {
       -r) reinstall=true; reinstall_flag="-r" ;;
       -s) skip_deps=true; skip_deps_flag="-s" ;;
       --debug) PPM_DEBUG=true ;;
+      --*) passthrough_args+=("$1") ;;
       *) echo "Unknown flag: $1"; exit 1 ;;
     esac
     shift
   done
+  set -- ${passthrough_args[@]+"${passthrough_args[@]}"} "$@"
 
   if declare -f "$command" > /dev/null; then
     "$command" "$@"

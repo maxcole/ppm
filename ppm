@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: src, update, list, install, remove, show, cd, package"
+  echo "Available commands: src, update, list, install, remove, show, deps, cd, package"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -223,6 +223,23 @@ update() {
   done
 
   $all_updated || return 1
+}
+
+
+# Show resolved dependency tree without installing
+deps() {
+  if [[ $# -eq 0 ]]; then
+    echo "Usage: ppm deps <package> [package...]"
+    exit 1
+  fi
+
+  collect_repos
+  resolve_deps "$@"
+
+  echo "Install order (${#RESOLVE_ORDER[@]} packages):"
+  for pkg in "${RESOLVE_ORDER[@]}"; do
+    echo "  $pkg"
+  done
 }
 
 

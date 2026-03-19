@@ -84,8 +84,23 @@ arch() {
 }
 
 
-install_yq() {
-  if command -v yq >/dev/null 2>&1 && yq --version 2>&1 | grep -q 'mikefarah/yq'; then
+setup_deps() {
+  if [[ "$(os)" == "linux" ]]; then
+    setup_deps_linux
+    sudo apt install curl git stow -y
+  elif [[ "$(os)" == "macos" ]]; then
+    setup_deps_macos
+    eval "$(/opt/homebrew/bin/brew shellenv zsh)"
+    brew install git stow wget yq
+  fi
+}
+
+
+setup_deps_linux() {
+  if ! sudo -n -l 2>/dev/null | grep -q "(ALL) NOPASSWD: ALL"; then
+    echo "Enable passwordless sudo ALL for this user before continuing"
+    exit 1
+  elif command -v yq >/dev/null 2>&1 && yq --version 2>&1 | grep -q 'mikefarah/yq'; then
     return 0
   fi
 
@@ -96,32 +111,12 @@ install_yq() {
 }
 
 
-setup_deps() {
-  if [[ "$(os)" == "linux" ]]; then
-    setup_deps_linux
-    sudo apt install curl git stow -y
-    install_yq
-  elif [[ "$(os)" == "macos" ]]; then
-    setup_deps_macos
-    eval "$(/opt/homebrew/bin/brew shellenv zsh)"
-    brew install git stow wget yq
-  fi
-}
-
-
-setup_deps_linux() {
-  if sudo -n -l 2>/dev/null | grep -q "(ALL) NOPASSWD: ALL"; then return; fi
-
-  echo "Enable passwordless sudo ALL for this user before continuing"
-  exit 1
-}
-
-
 setup_deps_macos() {
   if ! sudo -n true 2>/dev/null; then
     echo "This script requires sudo access to install xcode. Please enter your password:"
     sudo -v
   fi
+
   if ! command -v brew >/dev/null 2>&1; then
     echo "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"

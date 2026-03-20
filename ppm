@@ -300,105 +300,115 @@ install() {
   [[ "$(os)" == "macos" ]] && update_brew_if_needed
   expand_packages "install" "$@"
   $reinstall && remover "${EXPANDED_PACKAGES[@]}"
-  installer "${EXPANDED_PACKAGES[@]}"
+
+  collect_repos
+
+  # Resolve full dependency graph
+  if ! $skip_deps; then
+    resolve_deps "${EXPANDED_PACKAGES[@]}"
+  else
+    # Skip deps mode: just resolve the requested packages, no transitive deps
+    RESOLVE_ORDER=()
+    RESOLVE_DIRS=()
+    for pkg in "${EXPANDED_PACKAGES[@]}"; do
+      local found
+      found=$(find_package_dir "$pkg") || { echo "Error: Package '$pkg' not found"; exit 1; }
+      local repo_index="${found%%	*}"
+      local rest="${found#*	}"
+      local repo_name="${rest%%	*}"
+      local pkg_dir="${rest#*	}"
+      local pkg_name="${pkg##*/}"
+      local qualified="${repo_name}/${pkg_name}"
+      RESOLVE_ORDER+=("$qualified")
+      RESOLVE_DIRS+=("$pkg_dir")
+    done
+  fi
+
+  echo "Installing ${#RESOLVE_ORDER[@]} package(s):"
+  for pkg in "${RESOLVE_ORDER[@]}"; do
+    echo "  $pkg"
+  done
+  echo ""
+
+  # Install in topological order
+  local idx=0
+  for qualified in "${RESOLVE_ORDER[@]}"; do
+    local pkg_dir="${RESOLVE_DIRS[$idx]}"
+    local repo_name="${qualified%%/*}"
+    local package_name="${qualified##*/}"
+
+    install_single_package "$repo_name" "$package_name" "$pkg_dir"
+    idx=$((idx + 1))
+  done
+
   flush_user_messages
 }
 
-installer() {
-  collect_repos
-  requested_packages=("$@")
+install_single_package() {
+  local repo_name="$1" package_name="$2" package_dir="$3"
+  local ignore_args=()
 
-  for pkg in "${requested_packages[@]}"; do
-    local package_repo=$(dirname "$pkg") package_name=$(basename "$pkg") ignore_args=()
-    # Is the package requested from a specific repo (ppm install repo/pkg)
-    [[ "$pkg" == */* ]] && single_repo="true" || single_repo="false"
+  PPM_CURRENT_PACKAGE="$repo_name/$package_name"
+  echo "Install $repo_name/$package_name"
+  debug "Package dir: $package_dir"
 
-    for i in "${!REPO_URLS[@]}"; do
-      local repo_name="${REPO_NAMES[$i]}"
+  # No installer — just stow, track, and continue
+  if [[ ! -f "$package_dir/install.sh" ]]; then
+    stow_subdir "$package_dir" "home"
+    [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
 
-      # Skip unmatched repos if package is requested from a specific repo
-      [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
+    local stowed_files=""
+    [[ -d "$package_dir/home" ]] && stowed_files=$(package_links "$package_dir/home")
+    if [[ -n "${PPM_GROUP_ID:-}" && -d "$package_dir/$PPM_GROUP_ID" ]]; then
+      local group_files
+      group_files=$(package_links "$package_dir/$PPM_GROUP_ID")
+      [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
+    fi
+    meta_cleanup_stale "$repo_name" "$package_name" "$package_dir" "$stowed_files"
+    meta_mark_installed "$repo_name" "$package_name" "$package_dir" "$stowed_files"
+    return
+  fi
 
-      # If the package is not found in this repo then skip to the next repo
-      package_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
-      [[ ! -d $package_dir ]] && continue
-      debug "Found $package_name in repo $repo_name"
-      PPM_CURRENT_PACKAGE="$repo_name/$package_name"
-      echo "Install $repo_name/$package_name"
+  # pre_install hook
+  (
+    source "$package_dir/install.sh"
+    if type pre_install &>/dev/null && [[ -z "${config_flag:-}" ]]; then
+      pre_install
+    fi
+  )
 
-      # No installer - just stow, track, and continue
-      if [[ ! -f "$package_dir/install.sh" ]]; then
-        stow_subdir "$package_dir" "home"
-        [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
+  # Stow files (main shell for ignore_args persistence)
+  stow_subdir "$package_dir" "home"
+  [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
 
-        local stowed_files=""
-        [[ -d "$package_dir/home" ]] && stowed_files=$(package_links "$package_dir/home")
-        if [[ -n "${PPM_GROUP_ID:-}" && -d "$package_dir/$PPM_GROUP_ID" ]]; then
-          local group_files
-          group_files=$(package_links "$package_dir/$PPM_GROUP_ID")
-          [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
-        fi
-        meta_cleanup_stale "$repo_name" "$package_name" "$package_dir" "$stowed_files"
-        meta_mark_installed "$repo_name" "$package_name" "$package_dir" "$stowed_files"
-        continue
-      fi
+  # Collect stowed files for tracking
+  local stowed_files=""
+  [[ -d "$package_dir/home" ]] && stowed_files=$(package_links "$package_dir/home")
+  if [[ -n "${PPM_GROUP_ID:-}" && -d "$package_dir/$PPM_GROUP_ID" ]]; then
+    local group_files
+    group_files=$(package_links "$package_dir/$PPM_GROUP_ID")
+    [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
+  fi
 
-      # Handle dependencies (from package.yml, fallback to install.sh)
-      if ! $skip_deps; then
-        local deps
-        deps=$(resolve_package_deps "$package_dir")
-        if [[ -n "$deps" ]]; then
-          for dep in $deps; do
-            debug "Dependency: $package_name requires $dep"
-            "$0" "installer" ${config_flag:+"$config_flag"} ${force_flag:+"$force_flag"} ${skip_deps_flag:+"$skip_deps_flag"} "$dep"
-          done
-        fi
-      fi
+  # Clean up stale files from previous version
+  meta_cleanup_stale "$repo_name" "$package_name" "$package_dir" "$stowed_files"
 
-      # pre_install hook
-      if [[ -f "$package_dir/install.sh" ]]; then
-        (
-          source "$package_dir/install.sh"
-          if type pre_install &>/dev/null && [[ -z "$config_flag" ]]; then
-            pre_install
-          fi
-        )
-      fi
+  # OS-specific install + post_install
+  (
+    source "$package_dir/install.sh"
 
-      # Stow files (must be in main shell to persist ignore_args across repos)
-      stow_subdir "$package_dir" "home"
-      [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
+    local func_name="install_$(os)"
+    if type "$func_name" &>/dev/null && [[ -z "${config_flag:-}" ]]; then
+      "$func_name"
+    fi
 
-      # Collect stowed files for tracking
-      local stowed_files=""
-      [[ -d "$package_dir/home" ]] && stowed_files=$(package_links "$package_dir/home")
-      if [[ -n "${PPM_GROUP_ID:-}" && -d "$package_dir/$PPM_GROUP_ID" ]]; then
-        local group_files
-        group_files=$(package_links "$package_dir/$PPM_GROUP_ID")
-        [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
-      fi
+    if type post_install &>/dev/null && [[ -z "${config_flag:-}" ]]; then
+      post_install
+    fi
+  )
 
-      # Clean up stale files from previous version
-      meta_cleanup_stale "$repo_name" "$package_name" "$package_dir" "$stowed_files"
-
-      # Post-install and OS-specific install
-      (
-        source "$package_dir/install.sh"
-
-        func_name="install_$(os)"
-        if type $func_name &>/dev/null && [[ -z "$config_flag" ]]; then
-          $func_name
-        fi
-
-        if type post_install &>/dev/null && [[ -z "$config_flag" ]]; then
-          post_install
-        fi
-      )
-
-      # Write tracker after all phases succeed
-      meta_mark_installed "$repo_name" "$package_name" "$package_dir" "$stowed_files"
-    done
-  done
+  # Write tracker after all phases succeed
+  meta_mark_installed "$repo_name" "$package_name" "$package_dir" "$stowed_files"
 }
 
 

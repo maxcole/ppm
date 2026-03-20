@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Package metadata functions — reads package.yml via yq
-
-PPM_INSTALLED_DIR="$PPM_DATA_HOME/.installed"
+# PPM_INSTALLED_DIR is set in the main ppm script bootstrap
 
 # Read the depends list from package.yml
 # Returns one dependency per line (suitable for while-read loops)
@@ -31,7 +30,7 @@ meta_author() {
   yq -r '.author // ""' "$meta" 2>/dev/null
 }
 
-# Get dependencies, falling back to install.sh if no package.yml
+# Get dependencies, falling back to asset hook if no package.yml
 # Returns space-separated list (matching old dependencies() convention)
 # Usage: resolve_package_deps <package_dir>
 resolve_package_deps() {
@@ -41,10 +40,10 @@ resolve_package_deps() {
   if [[ -f "$meta" ]] && yq -e '.depends' "$meta" &>/dev/null; then
     # Read from YAML, output space-separated
     yq -r '.depends[]' "$meta" 2>/dev/null | tr '\n' ' '
-  elif [[ -f "$pkg_dir/install.sh" ]]; then
-    # Fallback: source install.sh and call dependencies()
+  elif [[ -f "$pkg_dir/$PPM_ASSET_HOOK" ]]; then
+    # Fallback: source asset hook and call dependencies()
     (
-      source "$pkg_dir/install.sh" 2>/dev/null
+      source "$pkg_dir/$PPM_ASSET_HOOK" 2>/dev/null
       type dependencies &>/dev/null && dependencies || true
     )
   fi

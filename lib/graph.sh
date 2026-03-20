@@ -35,7 +35,7 @@ find_package_dir() {
     local repo_name="${REPO_NAMES[$i]}"
     [[ -n "$package_repo" && "$repo_name" != "$package_repo" ]] && continue
 
-    local pkg_dir="$PPM_DATA_HOME/$repo_name/packages/$package_name"
+    local pkg_dir="$PPM_DATA_HOME/$repo_name/$PPM_ASSET_DIR/$package_name"
     if [[ -d "$pkg_dir" ]]; then
       printf '%s\t%s\t%s\n' "$i" "$repo_name" "$pkg_dir"
       return 0
@@ -65,7 +65,7 @@ _resolve_one() {
   local found repo_index repo_name pkg_dir
 
   found=$(find_package_dir "$pkg" "$min_index") || {
-    echo "Error: Package '$pkg' not found" >&2
+    echo "Error: ${PPM_ASSET_LABEL} '$pkg' not found" >&2
     exit 1
   }
   repo_index="${found%%	*}"

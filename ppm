@@ -11,22 +11,26 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
-BIN_DIR=$HOME/.local/bin
-LIB_DIR=$HOME/.local/lib
+# Asset configuration — overridable by caller (e.g. psm shell function)
+PPM_ASSET_DIR="${PPM_ASSET_DIR:-packages}"
+PPM_ASSET_HOOK="${PPM_ASSET_HOOK:-install.sh}"
+PPM_ASSET_LABEL="${PPM_ASSET_LABEL:-package}"
 
 # XDG directories
-XDG_CACHE_HOME=$HOME/.cache
-XDG_CONFIG_HOME=$HOME/.config
-XDG_DATA_HOME=$HOME/.local/share
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 
-# PPM directories
-PPM_CACHE_HOME=$XDG_CACHE_HOME/ppm
-PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
-PPM_DATA_HOME=$XDG_DATA_HOME/ppm
-PPM_LIB_DIR=$LIB_DIR/ppm
+# PPM directories — overridable for alternate profiles
+PPM_CONFIG_HOME="${PPM_CONFIG_HOME:-$XDG_CONFIG_HOME/ppm}"
+PPM_DATA_HOME="${PPM_DATA_HOME:-$XDG_DATA_HOME/ppm}"
+PPM_CACHE_HOME="${PPM_CACHE_HOME:-$XDG_CACHE_HOME/ppm}"
 
-# PPM files
-PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
+# Derived paths (not overridable — derived from above)
+PPM_SOURCES_FILE="$PPM_CONFIG_HOME/sources.list"
+PPM_INSTALLED_DIR="$PPM_DATA_HOME/.installed"
+PPM_LIB_DIR="${HOME}/.local/lib/ppm"
+BIN_DIR="${HOME}/.local/bin"
 
 # Resolve the repo directory (works through symlinks)
 _resolve_path() {
@@ -40,12 +44,19 @@ _resolve_path() {
 }
 PPM_REPO_DIR="$(_resolve_path "$0")"
 
-# Source ppm's own libraries
+# Source shared libraries
 for lib_file in "$PPM_REPO_DIR"/lib/*.sh; do
   [[ -f "$lib_file" ]] && source "$lib_file"
 done
 
-# Source package-contributed libraries (e.g. from zsh package)
+# Source backend-specific libraries (e.g. lib/packages/*.sh or lib/services/*.sh)
+if [[ -d "$PPM_REPO_DIR/lib/$PPM_ASSET_DIR" ]]; then
+  for lib_file in "$PPM_REPO_DIR/lib/$PPM_ASSET_DIR"/*.sh; do
+    [[ -f "$lib_file" ]] && source "$lib_file"
+  done
+fi
+
+# Source package-contributed library extensions
 if [[ -d "$PPM_LIB_DIR" ]]; then
   for lib_file in "$PPM_LIB_DIR"/*.sh; do
     [[ -f "$lib_file" ]] && source "$lib_file"
@@ -242,14 +253,14 @@ update() {
 # Show resolved dependency tree without installing
 deps() {
   if [[ $# -eq 0 ]]; then
-    echo "Usage: ppm deps <package> [package...]"
+    echo "Usage: ppm deps <${PPM_ASSET_LABEL}> [${PPM_ASSET_LABEL}...]"
     exit 1
   fi
 
   collect_repos
   resolve_deps "$@"
 
-  echo "Install order (${#RESOLVE_ORDER[@]} packages):"
+  echo "Install order (${#RESOLVE_ORDER[@]} ${PPM_ASSET_LABEL}s):"
   for pkg in "${RESOLVE_ORDER[@]}"; do
     echo "  $pkg"
   done
@@ -268,7 +279,7 @@ list() {
 
   if $installed_only; then
     if [[ ! -d "$PPM_INSTALLED_DIR" ]]; then
-      echo "No packages installed (or tracking not yet enabled)"
+      echo "No ${PPM_ASSET_LABEL}s installed (or tracking not yet enabled)"
       return
     fi
     for tracker in "$PPM_INSTALLED_DIR"/*/*.yml; do
@@ -285,8 +296,8 @@ list() {
     return
   fi
 
-  collect_packages
-  for pkg in "${PACKAGES[@]}"; do
+  collect_assets
+  for pkg in ${PACKAGES[@]+"${PACKAGES[@]}"}; do
     if [[ -z "$filter" ]] || [[ "$pkg" == *"$filter"* ]]; then
       echo "$pkg"
     fi
@@ -312,7 +323,7 @@ install() {
     RESOLVE_DIRS=()
     for pkg in "${EXPANDED_PACKAGES[@]}"; do
       local found
-      found=$(find_package_dir "$pkg") || { echo "Error: Package '$pkg' not found"; exit 1; }
+      found=$(find_package_dir "$pkg") || { echo "Error: ${PPM_ASSET_LABEL} '$pkg' not found"; exit 1; }
       local repo_index="${found%%	*}"
       local rest="${found#*	}"
       local repo_name="${rest%%	*}"
@@ -324,7 +335,7 @@ install() {
     done
   fi
 
-  echo "Installing ${#RESOLVE_ORDER[@]} package(s):"
+  echo "Installing ${#RESOLVE_ORDER[@]} ${PPM_ASSET_LABEL}(s):"
   for pkg in "${RESOLVE_ORDER[@]}"; do
     echo "  $pkg"
   done
@@ -344,130 +355,11 @@ install() {
   flush_user_messages
 }
 
-install_single_package() {
-  local repo_name="$1" package_name="$2" package_dir="$3"
-  local ignore_args=()
-
-  PPM_CURRENT_PACKAGE="$repo_name/$package_name"
-  echo "Install $repo_name/$package_name"
-  debug "Package dir: $package_dir"
-
-  # No installer — just stow, track, and continue
-  if [[ ! -f "$package_dir/install.sh" ]]; then
-    stow_subdir "$package_dir" "home"
-    [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
-
-    local stowed_files=""
-    [[ -d "$package_dir/home" ]] && stowed_files=$(package_links "$package_dir/home")
-    if [[ -n "${PPM_GROUP_ID:-}" && -d "$package_dir/$PPM_GROUP_ID" ]]; then
-      local group_files
-      group_files=$(package_links "$package_dir/$PPM_GROUP_ID")
-      [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
-    fi
-    meta_cleanup_stale "$repo_name" "$package_name" "$package_dir" "$stowed_files"
-    meta_mark_installed "$repo_name" "$package_name" "$package_dir" "$stowed_files"
-    return
-  fi
-
-  # pre_install hook
-  (
-    source "$package_dir/install.sh"
-    if type pre_install &>/dev/null && [[ -z "${config_flag:-}" ]]; then
-      pre_install
-    fi
-  )
-
-  # Stow files (main shell for ignore_args persistence)
-  stow_subdir "$package_dir" "home"
-  [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$package_dir" "$PPM_GROUP_ID"
-
-  # Collect stowed files for tracking
-  local stowed_files=""
-  [[ -d "$package_dir/home" ]] && stowed_files=$(package_links "$package_dir/home")
-  if [[ -n "${PPM_GROUP_ID:-}" && -d "$package_dir/$PPM_GROUP_ID" ]]; then
-    local group_files
-    group_files=$(package_links "$package_dir/$PPM_GROUP_ID")
-    [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
-  fi
-
-  # Clean up stale files from previous version
-  meta_cleanup_stale "$repo_name" "$package_name" "$package_dir" "$stowed_files"
-
-  # OS-specific install + post_install
-  (
-    source "$package_dir/install.sh"
-
-    local func_name="install_$(os)"
-    if type "$func_name" &>/dev/null && [[ -z "${config_flag:-}" ]]; then
-      "$func_name"
-    fi
-
-    if type post_install &>/dev/null && [[ -z "${config_flag:-}" ]]; then
-      post_install
-    fi
-  )
-
-  # Write tracker after all phases succeed
-  meta_mark_installed "$repo_name" "$package_name" "$package_dir" "$stowed_files"
-}
-
-
 # Remove one or more packages as requested by the user
 remove() {
   expand_packages "remove" "$@"
   remover "${EXPANDED_PACKAGES[@]}"
   flush_user_messages
-}
-
-remover() {
-  collect_repos
-  requested_packages=("$@")
-
-  for pkg in "${requested_packages[@]}"; do
-    local package_repo=$(dirname "$pkg") package_name=$(basename "$pkg")
-    [[ "$pkg" == */* ]] && single_repo="true" || single_repo="false"
-
-    for i in "${!REPO_URLS[@]}"; do
-      local repo_name="${REPO_NAMES[$i]}"
-
-      # Skip unmatched repos if package is requested from a specific repo
-      [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
-
-      local pkg_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
-      [[ ! -d $pkg_dir ]] && continue
-      echo "Remove $repo_name/$package_name"
-
-      local has_installer
-      [[ -f "$pkg_dir/install.sh" ]] && has_installer=true || has_installer=false
-
-      # Phase 1: pre_remove hook
-      if $has_installer; then
-        (
-          source "$pkg_dir/install.sh"
-          type pre_remove &>/dev/null && pre_remove || true
-        )
-      fi
-
-      # Phase 2: unstow (main shell — persists state across repos)
-      [[ -d $pkg_dir/home ]] && stow -D -d $pkg_dir -t $HOME home
-      [[ -n "${PPM_GROUP_ID:-}" && -d "$pkg_dir/$PPM_GROUP_ID" ]] && \
-        stow -D -d $pkg_dir -t $HOME "$PPM_GROUP_ID"
-
-      # Phase 3: OS-specific remove + post_remove
-      if $has_installer; then
-        (
-          source "$pkg_dir/install.sh"
-
-          func_name="remove_$(os)"
-          type $func_name &>/dev/null && $func_name || true
-          type post_remove &>/dev/null && post_remove || true
-        )
-      fi
-
-      # Phase 4: remove tracker
-      meta_mark_removed "$repo_name" "$package_name"
-    done
-  done
 }
 
 
@@ -566,8 +458,8 @@ EOF
 # Show package information: dependencies and directory trees
 show() {
   if [[ $# -eq 0 ]]; then
-    echo "Error: show requires a package name"
-    echo "Usage: ppm show [repo/]package"
+    echo "Error: show requires a ${PPM_ASSET_LABEL} name"
+    echo "Usage: ppm show [repo/]${PPM_ASSET_LABEL}"
     exit 1
   fi
 
@@ -585,11 +477,11 @@ show() {
     # Skip unmatched repos if package is requested from a specific repo
     [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
 
-    local package_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
+    local package_dir=$PPM_DATA_HOME/$repo_name/$PPM_ASSET_DIR/$package_name
     [[ ! -d $package_dir ]] && continue
 
     found=true
-    echo "Package: $repo_name/$package_name"
+    echo "${PPM_ASSET_LABEL}: $repo_name/$package_name"
     echo ""
 
     # Show version
@@ -654,7 +546,7 @@ show() {
   done
 
   if ! $found; then
-    echo "Error: Package '$pkg' not found"
+    echo "Error: ${PPM_ASSET_LABEL} '$pkg' not found"
     exit 1
   fi
 }
@@ -666,8 +558,8 @@ path() {
   [[ "${1:-}" == "-v" ]] && { verbose=true; shift; }
 
   if [[ $# -eq 0 ]]; then
-    echo "Error: path requires a package name"
-    echo "Usage: ppm path [-v] [repo/]package"
+    echo "Error: path requires a ${PPM_ASSET_LABEL} name"
+    echo "Usage: ppm path [-v] [repo/]${PPM_ASSET_LABEL}"
     exit 1
   fi
 
@@ -685,17 +577,17 @@ path() {
     # Skip unmatched repos if package is requested from a specific repo
     [[ "$single_repo" == "true" && "$repo_name" != "$package_repo" ]] && continue
 
-    local package_dir=$PPM_DATA_HOME/$repo_name/packages/$package_name
+    local package_dir=$PPM_DATA_HOME/$repo_name/$PPM_ASSET_DIR/$package_name
     [[ -d $package_dir ]] && found_paths+=("$package_dir")
   done
 
   if [[ ${#found_paths[@]} -eq 0 ]]; then
-    echo "Error: Package '$pkg' not found" >&2
+    echo "Error: ${PPM_ASSET_LABEL} '$pkg' not found" >&2
     exit 1
   fi
 
   if $verbose && [[ ${#found_paths[@]} -gt 1 ]]; then
-    echo "Warning: Package '$pkg' found in multiple repos, using first match:" >&2
+    echo "Warning: ${PPM_ASSET_LABEL} '$pkg' found in multiple repos, using first match:" >&2
     for p in "${found_paths[@]}"; do
       echo "  $(basename "$(dirname "$(dirname "$p")")")/$(basename "$p")" >&2
     done

@@ -7,14 +7,13 @@ post_install() {
   # Create PSM config directory
   mkdir -p "$psm_config"
 
-  # Create default sources.list if it doesn't exist
+  # Create default sources.list with psm-ppm if it doesn't exist
   if [[ ! -f "$psm_config/sources.list" ]]; then
     cat > "$psm_config/sources.list" <<'EOF'
-# PSM service sources
-# Format: <git-url>  <alias>
-# Add repos with: psm src add <git-url>
+git@github.com:maxcole/psm-ppm  psm-ppm
 EOF
-    user_message "Created $psm_config/sources.list\nAdd service repos with: psm src add <git-url>"
+    user_message "Created $psm_config/sources.list with default service source"
+    user_message "Run: psm update  to fetch service definitions"
   fi
 
   # Create PSM data directory

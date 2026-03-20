@@ -82,7 +82,7 @@ _compose_run() {
   # Varlock path: validate schema + resolve credentials, then run compose
   if [[ -z "${PSM_SKIP_VALIDATION:-}" ]] \
      && command -v varlock >/dev/null 2>&1 \
-     && [[ -f "${registry_dir}/.schema.env" ]]; then
+     && [[ -f "${registry_dir}/.env.schema" ]]; then
     debug "varlock detected — using validated env from .schema.env"
 
     (
@@ -102,7 +102,7 @@ _compose_run() {
   if [[ -n "${PSM_SKIP_VALIDATION:-}" ]]; then
     debug "Validation skipped (--skip-validation)"
   else
-    debug "No varlock — using .env.example + user overrides"
+    debug "No varlock or no valid schema — using .env.example + user overrides"
   fi
 
   podman-compose -f "$compose_file" --env-file "$env_file" -p "$project_name" "$@"

@@ -3,6 +3,15 @@ set -euo pipefail
 
 list_commands() {
   echo "Available commands: src, update, list, install, remove, show, deps, cd, package"
+  if type backend_command &>/dev/null; then
+    echo ""
+    echo "Service lifecycle:"
+    echo "  up <service>          Start a service (auto-installs if needed)"
+    echo "  down <service>        Stop a service"
+    echo "  restart <service>     Restart a service"
+    echo "  logs <service> [-f]   View service logs"
+    echo "  status [<service>]    Show running service status"
+  fi
 }
 
 if [[ $# -eq 0 ]]; then
@@ -341,6 +350,24 @@ install() {
   done
   echo ""
 
+  # Propagate network context from requested packages (service backend only)
+  _PSM_INSTALL_NETWORK=""
+  if type _service_network &>/dev/null; then
+    for exp_pkg in "${EXPANDED_PACKAGES[@]}"; do
+      local exp_found
+      exp_found=$(find_package_dir "$exp_pkg" 2>/dev/null) || continue
+      local exp_dir="${exp_found#*	}"
+      exp_dir="${exp_dir#*	}"
+      local declared
+      declared=$(_service_network "$exp_dir")
+      if [[ -n "$declared" ]]; then
+        _PSM_INSTALL_NETWORK="$declared"
+        debug "Network context: $declared (from $exp_pkg)"
+        break
+      fi
+    done
+  fi
+
   # Install in topological order
   local idx=0
   for qualified in "${RESOLVE_ORDER[@]}"; do
@@ -352,7 +379,15 @@ install() {
     idx=$((idx + 1))
   done
 
+  _PSM_INSTALL_NETWORK=""
   flush_user_messages
+
+  # Start services after install if --up was passed (service backend only)
+  if [[ "${PSM_START_AFTER_INSTALL:-false}" == "true" ]] && type cmd_up &>/dev/null; then
+    for exp_pkg in "${EXPANDED_PACKAGES[@]}"; do
+      cmd_up "$(basename "$exp_pkg")"
+    done
+  fi
 }
 
 # Remove one or more packages as requested by the user
@@ -624,15 +659,29 @@ main() {
       -r) reinstall=true; reinstall_flag="-r" ;;
       -s) skip_deps=true; skip_deps_flag="-s" ;;
       --debug) PPM_DEBUG=true ;;
-      --*) passthrough_args+=("$1") ;;
+      --*)
+        # Try backend-specific flag parser if available
+        if type parse_backend_flag &>/dev/null && parse_backend_flag "$1"; then
+          :
+        else
+          passthrough_args+=("$1")
+        fi
+        ;;
       *) echo "Unknown flag: $1"; exit 1 ;;
     esac
     shift
   done
   set -- ${passthrough_args[@]+"${passthrough_args[@]}"} "$@"
 
+  # Re-resolve scope if backend flags changed it
+  if type _resolve_scope &>/dev/null; then
+    _resolve_scope
+  fi
+
   if declare -f "$command" > /dev/null; then
     "$command" "$@"
+  elif type backend_command &>/dev/null && backend_command "$command" "$@"; then
+    :
   else
     echo "Error: Unknown command '$command'"
     list_commands

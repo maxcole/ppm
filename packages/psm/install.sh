@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 post_install() {
+  install_completion "psm completion zsh"
   local psm_config="${XDG_CONFIG_HOME:-$HOME/.config}/psm"
   local psm_data="${XDG_DATA_HOME:-$HOME/.local/share}/psm"
 

@@ -24,6 +24,7 @@ fi
 PPM_ASSET_DIR="${PPM_ASSET_DIR:-packages}"
 PPM_ASSET_HOOK="${PPM_ASSET_HOOK:-install.sh}"
 PPM_ASSET_LABEL="${PPM_ASSET_LABEL:-package}"
+PPM_ASSET_META="${PPM_ASSET_META:-package.yml}"
 
 # XDG directories
 XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
@@ -129,8 +130,15 @@ src() {
       local removed=false
 
       # Match on either URL (first column) or alias (second column)
-      if grep -q "^${target}\b\|[[:space:]]${target}$" "$PPM_SOURCES_FILE" 2>/dev/null; then
-        _sed_inplace "/^${target}[[:space:]]/d;/[[:space:]]${target}$/d" "$PPM_SOURCES_FILE"
+      # Use awk instead of sed to avoid delimiter conflicts with URLs containing /
+      if awk -v t="$target" '$1 == t || $NF == t { found=1 } END { exit !found }' "$PPM_SOURCES_FILE" 2>/dev/null; then
+        local tmp
+        tmp=$(awk -v t="$target" '$1 != t && $NF != t' "$PPM_SOURCES_FILE")
+        if [[ -n "$tmp" ]]; then
+          printf '%s\n' "$tmp" > "$PPM_SOURCES_FILE"
+        else
+          : > "$PPM_SOURCES_FILE"
+        fi
         removed=true
       fi
 
@@ -400,6 +408,11 @@ remove() {
 
 # Output shell completion for zsh or bash
 completion() {
+  if type backend_completion &>/dev/null; then
+    backend_completion "$@"
+    return
+  fi
+
   local shell="${1:-zsh}"
 
   case "$shell" in
@@ -556,6 +569,11 @@ show() {
       echo "Status: not installed"
     fi
     echo ""
+
+    # Call backend-specific show if available
+    if type backend_show &>/dev/null; then
+      backend_show "$package_dir" "$package_name" "$repo_name"
+    fi
 
     # Show home tree if it exists
     if [[ -d "$package_dir/home" ]]; then

@@ -26,20 +26,20 @@ _resolve_scope() {
 
   PSM_SCOPE="${PSM_SCOPE_OVERRIDE:-${config_scope:-user}}"
 
+  local xdg_state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+
   case "$PSM_SCOPE" in
     user)
-      PSM_HOME="$PPM_DATA_HOME"
+      PSM_SERVICES_HOME="${xdg_state_home}/psm"
       ;;
     system)
-      PSM_HOME="/opt/psm"
+      PSM_SERVICES_HOME="/opt/psm"
       ;;
     *)
       echo "psm: Invalid scope: ${PSM_SCOPE} (must be 'user' or 'system')" >&2
       exit 1
       ;;
   esac
-
-  PSM_SERVICES_HOME="${PSM_HOME}/services"
 }
 
 # Auto-resolve on source

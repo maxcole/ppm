@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Service backend — install/remove profile functions
 
-# Install a service: create instance directory, link registry
+# Install a service: create instance directory, link service definition
 profile_install() {
   local asset_dir="$1" asset_name="$2"
 
@@ -34,11 +34,19 @@ profile_install() {
   mkdir -p "${instance_dir}/data"
 
   # Link the service definition from the source repo
-  ln -sfn "$asset_dir" "${instance_dir}/registry"
+  ln -sfn "$asset_dir" "${instance_dir}/service"
 
   echo "  network:  $network"
   echo "  data:     ${instance_dir}/data"
   echo "  config:   ${instance_dir}/config"
+
+  # Generate Quadlet for system scope
+  if [[ "$PSM_SCOPE" == "system" ]]; then
+    _generate_quadlet "$asset_name" "$network" "$instance_dir" "$asset_dir"
+    systemctl daemon-reload
+    systemctl enable "psm-${network}-${asset_name}" 2>/dev/null || true
+    echo "  systemd:  psm-${network}-${asset_name}.service (enabled)"
+  fi
 
   # No stowed files for services — tracking is directory-based
   PROFILE_STOWED_FILES=""
@@ -59,9 +67,9 @@ profile_remove() {
   fi
 
   # Stop containers if running
-  if [[ -L "$instance_dir/registry" || -d "$instance_dir/registry" ]]; then
+  if [[ -L "$instance_dir/service" || -d "$instance_dir/service" ]]; then
     local compose_file
-    compose_file=$(_find_compose_file "$instance_dir/registry" 2>/dev/null) || true
+    compose_file=$(_find_compose_file "$instance_dir/service" 2>/dev/null) || true
     if [[ -n "$compose_file" ]]; then
       debug "Stopping containers for $asset_name"
       _compose_run "$asset_name" "$network" down 2>/dev/null || true
@@ -69,8 +77,13 @@ profile_remove() {
   fi
 
   # Remove the instance directory (data preserved)
-  rm -f "${instance_dir}/registry"
+  rm -f "${instance_dir}/service"
   rmdir "${instance_dir}/config" 2>/dev/null || true
+
+  # Remove Quadlet for system scope
+  if [[ "$PSM_SCOPE" == "system" ]]; then
+    _remove_quadlet "$asset_name" "$network" "$instance_dir"
+  fi
 
   echo "  Removed instance (data preserved at ${instance_dir}/data)"
 }
@@ -205,13 +218,19 @@ cmd_up() {
 
     # Skip services with no compose file (meta-services / bundles)
     local compose_file
-    compose_file=$(_find_compose_file "$instance_dir/registry" 2>/dev/null) || {
+    compose_file=$(_find_compose_file "$instance_dir/service" 2>/dev/null) || {
       debug "No compose file for $svc_name — skipping start"
       continue
     }
 
-    echo "Starting $svc_name"
-    _compose_run "$svc_name" "$network" up -d "$@"
+    if [[ "$PSM_SCOPE" == "system" ]]; then
+      local unit_name="psm-${network}-${svc_name}"
+      echo "Starting $svc_name (systemd)"
+      systemctl start "$unit_name"
+    else
+      echo "Starting $svc_name"
+      _compose_run "$svc_name" "$network" up -d "$@"
+    fi
   done
 }
 
@@ -245,12 +264,18 @@ cmd_down() {
     local svc_name="${qualified##*/}"
 
     local instance_dir="${PSM_SERVICES_HOME}/${network}/${svc_name}"
-    if [[ -d "$instance_dir/registry" ]] || [[ -L "$instance_dir/registry" ]]; then
+    if [[ -d "$instance_dir/service" ]] || [[ -L "$instance_dir/service" ]]; then
       local compose_file
-      compose_file=$(_find_compose_file "$instance_dir/registry" 2>/dev/null) || { i=$((i - 1)); continue; }
+      compose_file=$(_find_compose_file "$instance_dir/service" 2>/dev/null) || { i=$((i - 1)); continue; }
 
-      echo "Stopping $svc_name"
-      _compose_run "$svc_name" "$network" down 2>/dev/null || true
+      if [[ "$PSM_SCOPE" == "system" ]]; then
+        local unit_name="psm-${network}-${svc_name}"
+        echo "Stopping $svc_name (systemd)"
+        systemctl stop "$unit_name" 2>/dev/null || true
+      else
+        echo "Stopping $svc_name"
+        _compose_run "$svc_name" "$network" down 2>/dev/null || true
+      fi
     fi
     i=$((i - 1))
   done
@@ -287,6 +312,13 @@ cmd_status() {
 
   _require_podman
 
+  if [[ "$PSM_SCOPE" == "system" && -z "$arg" ]]; then
+    # System scope: show systemd unit status
+    echo "PSM services (systemd):"
+    systemctl list-units 'psm-*' --no-pager --no-legend 2>/dev/null || echo "  No PSM units found"
+    return
+  fi
+
   if [[ -z "$arg" ]]; then
     # Show all PSM services grouped by network
     echo "PSM services:"
@@ -298,7 +330,7 @@ cmd_status() {
         echo "  $network:"
         for svc_dir in "$network_dir"/*/; do
           [[ -d "$svc_dir" ]] || continue
-          [[ -L "$svc_dir/registry" || -d "$svc_dir/registry" ]] || continue
+          [[ -L "$svc_dir/service" || -d "$svc_dir/service" ]] || continue
           local svc_name=$(basename "$svc_dir")
           local project_name="${network}-${svc_name}"
           local status="stopped"
@@ -322,4 +354,188 @@ cmd_status() {
 
     _compose_run "$service" "$network" ps
   fi
+}
+
+# Enhanced show output for services
+# Called after the generic show output
+backend_show() {
+  local asset_dir="$1" asset_name="$2" repo_name="$3"
+
+  # Service metadata from service.yml (description, ports, tags)
+  local svc_meta="$asset_dir/$PPM_ASSET_META"
+  if [[ -f "$svc_meta" ]] && command -v yq >/dev/null 2>&1; then
+    local desc
+    desc=$(yq -r '.description // ""' "$svc_meta" 2>/dev/null)
+    [[ -n "$desc" && "$desc" != "null" ]] && echo "About:       $desc"
+
+    local ports
+    ports=$(yq -r '.ports[]? // ""' "$svc_meta" 2>/dev/null)
+    if [[ -n "$ports" ]]; then
+      echo "Ports:"
+      echo "$ports" | while IFS= read -r p; do
+        [[ -n "$p" ]] && echo "  $p"
+      done
+    fi
+  fi
+
+  # Network
+  local network
+  network=$(_service_network "$asset_dir")
+  if [[ -n "$network" ]]; then
+    echo "Network:     $network (isolated)"
+  else
+    echo "Network:     default (shared)"
+  fi
+
+  # PCM credentials
+  if [[ -f "$asset_dir/pcm.yml" ]]; then
+    echo "Credentials: pcm.yml present"
+  fi
+
+  # Resolved dependency tree
+  echo ""
+  collect_repos
+  resolve_deps "$asset_name"
+  if [[ ${#RESOLVE_ORDER[@]} -gt 1 ]]; then
+    echo "Resolved install order:"
+    for pkg in "${RESOLVE_ORDER[@]}"; do
+      local marker=""
+      [[ "$(basename "$pkg")" == "$asset_name" ]] && marker=" (this)"
+      echo "  $(basename "$pkg")${marker}"
+    done
+  fi
+
+  # Installed instance status
+  echo ""
+  local found_instances=false
+  if [[ -d "$PSM_SERVICES_HOME" ]]; then
+    for network_dir in "$PSM_SERVICES_HOME"/*/; do
+      [[ -d "$network_dir" ]] || continue
+      local net=$(basename "$network_dir")
+      local instance_dir="$network_dir/$asset_name"
+      [[ -d "$instance_dir" ]] || continue
+
+      found_instances=true
+      local status="stopped"
+      local project_name="${net}-${asset_name}"
+      if podman ps --filter "label=com.docker.compose.project=${project_name}" --format "{{.Status}}" 2>/dev/null | grep -qi "up\|running"; then
+        status="running"
+      fi
+
+      echo "Instance:    $net/$asset_name ($status)"
+      echo "  data:      $instance_dir/data"
+      echo "  config:    $instance_dir/config"
+    done
+  fi
+
+  if ! $found_instances; then
+    echo "Installed:   no"
+    echo "  Install with: psm install $asset_name"
+  fi
+}
+
+# Zsh completion output for PSM commands
+backend_completion() {
+  local shell="${1:-zsh}"
+  case "$shell" in
+    zsh)
+      cat <<'COMP'
+#compdef psm
+
+_psm() {
+    local -a subcommands
+    local state
+
+    subcommands=(
+        'install:Install a service'
+        'remove:Remove a service'
+        'update:Update service repositories'
+        'list:List available services'
+        'ls:List available services (alias)'
+        'show:Show service information'
+        'deps:Show dependency tree'
+        'src:Manage service sources'
+        'up:Start a service'
+        'down:Stop a service'
+        'restart:Restart a service'
+        'logs:View service logs'
+        'status:Show service status'
+        'path:Output path to a service directory'
+        'cd:Change to a service directory'
+        'config:Show PSM configuration'
+        'help:Show help'
+    )
+
+    _arguments -C \
+        '(-v)-v[Verbose output]' \
+        '(-s --skip-validation)-s[Skip validation]' \
+        '--skip-validation[Skip validation]' \
+        '--user[Force user scope]' \
+        '--system[Force system scope]' \
+        '1: :->command' \
+        '*: :->args'
+
+    case $state in
+        command)
+            _describe 'command' subcommands
+            ;;
+        args)
+            case ${words[2]} in
+                src)
+                    if [[ ${#words[@]} -eq 3 ]]; then
+                        local -a src_cmds
+                        src_cmds=('add:Add a service source' 'remove:Remove a service source' 'list:List configured sources')
+                        _describe 'subcommand' src_cmds
+                    fi
+                    ;;
+                install|remove|show|deps|up|down|restart|logs|status|path|cd)
+                    _psm_services_available
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_psm_services_available() {
+    local -a services
+    local psm_data_home="${XDG_DATA_HOME:-$HOME/.local/share}/psm"
+
+    # Available from repos
+    for repo_dir in "$psm_data_home"/*/services; do
+        [[ -d "$repo_dir" ]] || continue
+        local repo_name="${repo_dir%/services}"
+        repo_name="${repo_name##*/}"
+        for svc_dir in "$repo_dir"/*/; do
+            [[ -d "$svc_dir" ]] || continue
+            local svc_name="${svc_dir%/}"
+            svc_name="${svc_name##*/}"
+            services+=("${svc_name}")
+        done
+    done
+
+    # Installed instances (network/service)
+    local services_home="${XDG_STATE_HOME:-$HOME/.local/state}/psm"
+    if [[ -d "$services_home" ]]; then
+        for network_dir in "$services_home"/*/; do
+            [[ -d "$network_dir" ]] || continue
+            local network="${network_dir%/}"
+            network="${network##*/}"
+            for svc_dir in "$network_dir"/*/; do
+                [[ -d "$svc_dir" ]] || continue
+                local svc_name="${svc_dir%/}"
+                svc_name="${svc_name##*/}"
+                services+=("${network}/${svc_name}")
+            done
+        done
+    fi
+
+    _describe 'service' services
+}
+
+compdef _psm psm
+COMP
+      ;;
+    *)
+      echo "# Completion for $shell not yet implemented" ;;
+  esac
 }

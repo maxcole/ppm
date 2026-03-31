@@ -18,6 +18,7 @@ psm() {
         PPM_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/psm" \
         PPM_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/psm" \
         PPM_ASSET_DIR="services" \
+        PPM_ASSET_META="service.yml" \
         command ppm path $verbose_flag "$@"
       ) || return $?
       cd "$svc_path"
@@ -26,8 +27,18 @@ psm() {
     PPM_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/psm" \
     PPM_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/psm" \
     PPM_ASSET_DIR="services" \
-    PPM_ASSET_HOOK="service.sh" \
     PPM_ASSET_LABEL="service" \
+    PPM_ASSET_META="service.yml" \
     command ppm "$@"
   fi
 }
+
+# Load PSM completions
+if command -v ppm >/dev/null 2>&1; then
+  eval "$(PPM_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/psm" \
+    PPM_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/psm" \
+    PPM_ASSET_DIR=services \
+    PPM_ASSET_LABEL=service \
+    PPM_ASSET_META=service.yml \
+    command ppm completion zsh 2>/dev/null)"
+fi

@@ -7,7 +7,7 @@
 # Usage: meta_depends <package_dir>
 meta_depends() {
   local pkg_dir="$1"
-  local meta="$pkg_dir/package.yml"
+  local meta="$pkg_dir/$PPM_ASSET_META"
   [[ -f "$meta" ]] || return 0
   yq -r '.depends[]? // ""' "$meta" 2>/dev/null
 }
@@ -16,7 +16,7 @@ meta_depends() {
 # Usage: meta_version <package_dir>
 meta_version() {
   local pkg_dir="$1"
-  local meta="$pkg_dir/package.yml"
+  local meta="$pkg_dir/$PPM_ASSET_META"
   [[ -f "$meta" ]] || return 0
   yq -r '.version // ""' "$meta" 2>/dev/null
 }
@@ -25,7 +25,7 @@ meta_version() {
 # Usage: meta_author <package_dir>
 meta_author() {
   local pkg_dir="$1"
-  local meta="$pkg_dir/package.yml"
+  local meta="$pkg_dir/$PPM_ASSET_META"
   [[ -f "$meta" ]] || return 0
   yq -r '.author // ""' "$meta" 2>/dev/null
 }
@@ -35,7 +35,7 @@ meta_author() {
 # Usage: resolve_package_deps <package_dir>
 resolve_package_deps() {
   local pkg_dir="$1"
-  local meta="$pkg_dir/package.yml"
+  local meta="$pkg_dir/$PPM_ASSET_META"
 
   if [[ -f "$meta" ]] && yq -e '.depends' "$meta" &>/dev/null; then
     # Read from YAML, output space-separated

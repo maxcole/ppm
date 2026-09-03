@@ -22,6 +22,7 @@ ppm() {
     local ret=$?
     if [[ $ret -eq 0 && "$1" =~ ^(install|update|remove)$ ]]; then
       zsrc
+      compinit
     fi
     return $ret
   fi

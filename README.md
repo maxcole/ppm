@@ -37,11 +37,15 @@ After installing a package, run `zsrc` to reload zsh configuration.
 
 ## Default Sources
 
-The install creates a `sources.list` with two sources (in priority order):
+The install creates a `sources.list` with the following sources (in priority order):
 
-1. **[pde-ppm](https://github.com/maxcole/pde-ppm)** - Personal Development Environment packages.
+1. **[ai-ppm](https://github.com/maxcole/ai-ppm)** - AI packages.
 
 2. **[pdt-ppm](https://github.com/maxcole/pdt-ppm)** - Product Development Toolkit packages.
+
+3. **[pde-ppm](https://github.com/maxcole/pde-ppm)** - Personal Development Environment packages.
+
+4. **[ppm](https://github.com/maxcole/ppm)** - This repository.
 
 See each repo's README for available packages.
 
@@ -87,7 +91,7 @@ export PPM_INSTALL_REPO=git@github.com:user/my-ppm
 ```
 
 ```bash
-export PPM_INSTALL_PACKAGES="chorus claude git nvim tmux zsh"
+export PPM_INSTALL_PACKAGES="git nvim zsh"
 ```
 
 ```bash
@@ -96,19 +100,27 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 
 **Precedence**: Repositories are processed in the physical order in which they are declared in `sources.list`. When a file exists in multiple repositories at exactly the same path and name then an identical file exists. In order to avoid conflict the first occurance of the file takes precedence. Any identical files in subsequent repositories will be skipped/ignored. This feature allows personal repositories to override defaults in other repositories.
 
-**Updates**: `ppm update` skips repos with uncommitted changes to protect local modifications. Commit or stash to receive updates.
-
-**Updating ppm itself**:
-```bash
-ppm update ppm
-```
 ### Install on a remote host
 
-Copy your authorized_keys to the remote host
+To install ghostty terminfo to a remote host:
+```bash
+infocmp -x |ssh user@remote-host "tic -x -"
+```
 
+Copy your authorized_keys to the remote host
 ```bash
 ssh-copy-id user@host
 ```
+
+## Updates
+
+**Updates**: `ppm update` skips repos with uncommitted changes to protect local modifications. Commit or stash to receive updates.
+
+**Update a specific remote**:
+```bash
+ppm update <repo>
+```
+
 
 ## 1Password Integration
 

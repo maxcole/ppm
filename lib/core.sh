@@ -102,7 +102,7 @@ install_dep() {
     [[ "${1:-}" == "--cask" ]] && { cask_flag="--cask"; shift; }
     for dep in "$@"; do
       if ! brew list $cask_flag "$dep" &>/dev/null; then
-        brew install $cask_flag "$dep"
+        brew install --yes $cask_flag "$dep"
       elif brew outdated $cask_flag --quiet | grep -q "^${dep}$"; then
         brew upgrade $cask_flag "$dep"
       fi

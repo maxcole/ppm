@@ -91,7 +91,7 @@ setup_deps() {
   elif [[ "$(os)" == "macos" ]]; then
     setup_deps_macos
     eval "$(/opt/homebrew/bin/brew shellenv zsh)"
-    brew install git stow wget yq
+    brew install bash git stow wget yq
   fi
 }
 

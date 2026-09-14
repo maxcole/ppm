@@ -81,7 +81,17 @@ Available functions packages can call from their hooks:
 
 ## Source Precedence
 
-Repos in `sources.list` are processed in order. When a package exists in multiple repos, first match wins. This lets personal repos override defaults.
+Repos in `sources.list` are processed in order. When a package exists in multiple repos, each copy is a layer:
+
+- `ppm install git` installs every `git` package in source order (e.g. `user/git`, then `pde/git`). The layers share one stow ignore list (`PPM_IGNORE_ARGS`), so files stowed by a higher-priority layer are skipped by lower ones. This lets personal repos override individual files.
+- `ppm install pde/git` installs only that layer. It hits a stow conflict on files owned by a higher layer; this is intended.
+
+## Claiming Files
+
+- `ppm file claim <file...> [--repo REPO] [--package NAME]` copies files into `REPO/NAME/home/` and stows them from there. The default repo is `$PPM_DEFAULT_REPO` (default `user`, settable in `ppm.conf`). The default package has the same name as the owning package. A new package with a different name gets `depends: [<owner>]`.
+- `ppm file reset <file...>` deletes the claimed copy, restores the owner's link, and removes the claimant package if it becomes empty.
+- Claims are recorded in `~/.local/share/ppm/.installed/claims.yml` (file → claimant, owner). The per-package trackers are updated to match.
+- Neither command touches git. Commit the changes in the repo yourself.
 
 ## Dependencies
 
@@ -104,9 +114,10 @@ lib/
   core.sh      # os(), arch(), file utils, install_dep(), debug(), user_message(), ppm_fail()
   update.sh    # update_brew_if_needed(), update_ppm_if_needed()
   repo.sh      # collect_repos(), collect_packages()
-  stow.sh      # stow_subdir(), package_links(), force_remove_conflicts()
+  stow.sh      # stow_subdir(), package_links(), force_remove_conflicts(), PPM_IGNORE_ARGS
   meta.sh      # meta_depends(), meta_version(), installed tracking (per-package .yml files)
-  graph.sh     # resolve_deps(), find_package_dir(), topo sort (production tier)
+  graph.sh     # resolve_deps(), find_package_dirs(), find_package_dir(), topo sort with layers
+  file.sh      # file_command(): `ppm file claim|reset`, claims.yml
 ```
 
 Sourcing order in `ppm`:

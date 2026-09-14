@@ -2,7 +2,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: src, update, list, install, remove, show, deps, cd, package"
+  echo "Available commands: src, update, list, install, remove, show, deps, cd, package, file"
   if type backend_command &>/dev/null; then
     echo ""
     echo "Service lifecycle:"
@@ -339,16 +339,13 @@ install() {
     RESOLVE_ORDER=()
     RESOLVE_DIRS=()
     for pkg in "${EXPANDED_PACKAGES[@]}"; do
-      local found
-      found=$(find_package_dir "$pkg") || { echo "Error: ${PPM_ASSET_LABEL} '$pkg' not found"; exit 1; }
-      local repo_index="${found%%	*}"
-      local rest="${found#*	}"
-      local repo_name="${rest%%	*}"
-      local pkg_dir="${rest#*	}"
-      local pkg_name="${pkg##*/}"
-      local qualified="${repo_name}/${pkg_name}"
-      RESOLVE_ORDER+=("$qualified")
-      RESOLVE_DIRS+=("$pkg_dir")
+      local matches line
+      matches=$(find_package_dirs "$pkg") || { echo "Error: ${PPM_ASSET_LABEL} '$pkg' not found"; exit 1; }
+      while IFS= read -r line; do
+        local rest="${line#*	}"
+        RESOLVE_ORDER+=("${rest%%	*}/${pkg##*/}")
+        RESOLVE_DIRS+=("${rest#*	}")
+      done <<< "$matches"
     done
   fi
 
@@ -377,11 +374,17 @@ install() {
   fi
 
   # Install in topological order
-  local idx=0
+  local idx=0 prev_name=""
   for qualified in "${RESOLVE_ORDER[@]}"; do
     local pkg_dir="${RESOLVE_DIRS[$idx]}"
     local repo_name="${qualified%%/*}"
     local package_name="${qualified##*/}"
+
+    # Layers of the same package name share one stow ignore list
+    if [[ "$package_name" != "$prev_name" ]]; then
+      PPM_IGNORE_ARGS=()
+      prev_name="$package_name"
+    fi
 
     install_single_package "$repo_name" "$package_name" "$pkg_dir"
     idx=$((idx + 1))
@@ -436,6 +439,7 @@ _ppm() {
         'cd:Change to a package directory'
         'completion:Output shell completion'
         'package:Add a source repo and pull its contents'
+        'file:Claim files into your repo or reset them'
     )
 
     _arguments -C \
@@ -457,6 +461,20 @@ _ppm() {
                     ;;
                 install|remove|show|path|cd)
                     _ppm_packages_available
+                    ;;
+                file)
+                    if [[ ${#words[@]} -eq 3 ]]; then
+                        local -a file_cmds
+                        file_cmds=('claim:Copy files into your repo and stow them' 'reset:Restore the original package links')
+                        _describe 'subcommand' file_cmds
+                    elif [[ ${words[3]} == reset ]]; then
+                        local -a claimed
+                        local claims="${XDG_DATA_HOME:-$HOME/.local/share}/ppm/.installed/claims.yml"
+                        [[ -f "$claims" ]] && claimed=(${(f)"$(yq -r 'keys[]' "$claims" 2>/dev/null)"})
+                        compadd -P "$HOME/" -a claimed
+                    else
+                        _files
+                    fi
                     ;;
                 completion)
                     local -a shells
@@ -668,6 +686,8 @@ main() {
 
   # Command aliases
   [[ "$command" == "ls" ]] && command="list"
+  # Not named file() so the system `file` binary isn't shadowed in package hooks
+  [[ "$command" == "file" ]] && command="file_command"
 
   local passthrough_args=()
   while [[ "$#" -gt 0 && "$1" == -* ]]; do

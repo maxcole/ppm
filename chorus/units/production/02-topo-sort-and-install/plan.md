@@ -126,6 +126,8 @@ install_single_package() {
 
 Currently, `ignore_args` accumulates across repos for the same package name (when a package exists in multiple repos). With the new flat install loop, each `install_single_package` call is for a single qualified `repo/package` — the `ignore_args` array is local to that call. The cross-repo stow conflict handling (where files stowed from repo A are ignored when stowing from repo B) is preserved because `resolve_deps` only resolves one repo per package name (first match wins).
 
+> **Correction (2026-09-13):** this was wrong. First-match-wins meant lower-priority layers (e.g. `pde/git` under `user/git`) were never installed by `ppm install git`, so layering was lost, not preserved. Fixed by `find_package_dirs` + consecutive layer resolution in `lib/graph.sh`, and a shared `PPM_IGNORE_ARGS` list (`lib/stow.sh`) that `install()` resets per package name.
+
 ### 4. Remove the old `installer()` function
 
 The old `installer()` with its nested `for pkg / for repo` loops and recursive subprocess calls is fully replaced. Remove it.

@@ -3,22 +3,24 @@
 
 # Install a package asset: stow its home/ directory into $HOME
 # Called by install_single_package after pre_install and before post_install
+# Files already in PPM_IGNORE_ARGS (owned by a higher-priority layer) are skipped
 # Arguments: asset_dir asset_name
 profile_install() {
   local asset_dir="$1" asset_name="$2"
-  local ignore_args=()
+  local stowed_files="" subdir file
 
-  stow_subdir "$asset_dir" "home"
-  [[ -n "${PPM_GROUP_ID:-}" ]] && stow_subdir "$asset_dir" "$PPM_GROUP_ID"
+  for subdir in home ${PPM_GROUP_ID:-}; do
+    [[ -d "$asset_dir/$subdir" ]] || continue
 
-  # Collect stowed file list for tracking
-  local stowed_files=""
-  [[ -d "$asset_dir/home" ]] && stowed_files=$(package_links "$asset_dir/home")
-  if [[ -n "${PPM_GROUP_ID:-}" && -d "$asset_dir/$PPM_GROUP_ID" ]]; then
-    local group_files
-    group_files=$(package_links "$asset_dir/$PPM_GROUP_ID")
-    [[ -n "$group_files" ]] && stowed_files="${stowed_files}"$'\n'"${group_files}"
-  fi
+    # Track only the files this layer actually stows
+    while IFS= read -r file; do
+      if [[ -n "$file" ]] && ! is_stow_ignored "$file"; then
+        stowed_files="${stowed_files:+${stowed_files}$'\n'}${file}"
+      fi
+    done < <(package_links "$asset_dir/$subdir")
+
+    stow_subdir "$asset_dir" "$subdir"
+  done
 
   # Return stowed files via global (subshell-safe alternative to return values)
   PROFILE_STOWED_FILES="$stowed_files"

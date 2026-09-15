@@ -112,7 +112,7 @@ Plans are in `chorus/units/`. Follow the Chorus methodology:
 ```
 lib/
   core.sh        # API for package hooks: os(), arch(), install_dep(), add_to_file(), remove_from_file(),
-                 # debug(), user_message(), ppm_fail(), install_completion()
+                 # debug(), user_message(), ppm_fail()
   sources.sh     # src, update, package; collect_repos(), update_brew_if_needed(), update_ppm_if_needed()
   packages.sh    # list, show, path, deps; collect_packages(), find_package_dirs(), resolve_deps() (layered topo sort),
                  # package.yml reads (meta_depends, meta_version), install trackers (meta_mark_installed, ...)

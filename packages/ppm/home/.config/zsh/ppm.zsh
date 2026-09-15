@@ -4,6 +4,9 @@ if ! command -v ppm >/dev/null 2>&1; then
   return
 fi
 
+# zcomp comes from pde/zsh; ppm doesn't depend on that package
+(( $+functions[zcomp] )) && zcomp ppm
+
 # Wrapper to handle `ppm cd` since subshells can't change parent directory
 ppm() {
   if [[ "${1:-}" == "cd" ]]; then

@@ -156,18 +156,3 @@ ppm_fail() {
   user_message "ERROR: $*"
   return 1
 }
-
-# Generate and install a zsh completion file
-# Usage: install_completion "command completion-args..."
-install_completion() {
-  [[ -z "${PPM_FPATH:-}" ]] && return
-  local cmd="$1"
-  local output_file="$PPM_FPATH/_${cmd%% *}"
-
-  mkdir -p "$PPM_FPATH"
-  if ! $cmd > "$output_file"; then
-    user_message "Failed to generate completion for ${cmd%% *}"
-    rm -f "$output_file"
-    return 1
-  fi
-}

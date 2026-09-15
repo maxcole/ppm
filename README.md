@@ -30,6 +30,7 @@ ppm install [REPO]         # Installs all packages from a specific repo
 ppm install [PACKAGE]      # Install a specific package from all repos
 ppm install [REPO/PACKAGE] # Install a specific package from a specific repo
 ppm src add [REPO_URL]     # Add a package repository
+ppm src ssh [REPO]         # Switch GitHub HTTPS sources and remotes to SSH
 ppm update                 # Update (git clone/pull) package repositories
 ```
 
@@ -208,4 +209,11 @@ ppm update
 ppm install ppm/dev
 ```
 
-This creates a chorus space (defualt is `~/spaces/ppm` for developing the ppm script, the pde and pdt packages
+The `dev` package adds `ppm user` for testing installs as a throwaway user:
+
+```bash
+ppm user setup testuser    # create user with sudo, run install.sh as them, log in with your ssh agent
+ppm user remove testuser   # delete the user and their home directory
+```
+
+Run `ppm user` for all subcommands.

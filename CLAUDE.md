@@ -74,7 +74,7 @@ Available functions packages can call from their hooks:
 - `~/.config/ppm/ppm.conf` — configuration variables
 - `~/.config/ppm/ppm.local.conf` — machine-local config (not committed)
 - `~/.local/share/ppm/.installed/<repo>/<pkg>.yml` — per-package install tracker (version, timestamp, stowed files)
-- `~/.local/lib/ppm/*.sh` — package-contributed library extensions
+- `~/.local/lib/ppm/*.sh` — package-contributed library extensions. They can add helpers for hooks (e.g. `pde/ruby`'s `install_gem`) or commands: a function named `foo` becomes `ppm foo` (e.g. `ppm/dev`'s `ppm user`)
 - `~/.cache/ppm/` — cache files (brew/ppm update timestamps)
 
 ## Source Precedence

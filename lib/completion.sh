@@ -42,7 +42,7 @@ _ppm() {
                 src)
                     if [[ ${#words[@]} -eq 3 ]]; then
                         local -a src_cmds
-                        src_cmds=('add:Add a source repository' 'remove:Remove a source repository' 'list:List configured sources')
+                        src_cmds=('add:Add a source repository' 'remove:Remove a source repository' 'list:List configured sources' 'ssh:Switch GitHub HTTPS sources to SSH')
                         _describe 'subcommand' src_cmds
                     fi
                     ;;

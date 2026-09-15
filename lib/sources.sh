@@ -40,6 +40,48 @@ _repo_index() {
   echo 9999
 }
 
+# Convert https://github.com/user/repo[.git] to git@github.com:user/repo[.git]
+_github_ssh_url() {
+  echo "git@github.com:${1#https://github.com/}"
+}
+
+# Switch GitHub HTTPS entries in sources.list, and the origin remotes of cloned repos, to SSH
+# Usage: _src_ssh [alias]
+_src_ssh() {
+  local filter="${1:-}"
+  [[ -f "$PPM_SOURCES_FILE" ]] || { echo "No sources configured"; return 1; }
+  collect_repos
+
+  local i name url repo_dir remote changed found=false
+  for i in "${!REPO_NAMES[@]}"; do
+    name="${REPO_NAMES[$i]}"
+    [[ -z "$filter" || "$name" == "$filter" ]] || continue
+    found=true
+    changed=false
+    url="${REPO_URLS[$i]}"
+    repo_dir="$PPM_DATA_HOME/$name"
+
+    if [[ "$url" == https://github.com/* ]]; then
+      local tmp
+      tmp=$(awk -v old="$url" -v new="$(_github_ssh_url "$url")" \
+        '$1 == old { sub(/^[^[:space:]]+/, new) } { print }' "$PPM_SOURCES_FILE")
+      printf '%s\n' "$tmp" > "$PPM_SOURCES_FILE"
+      echo "$name: sources.list -> $(_github_ssh_url "$url")"
+      changed=true
+    fi
+
+    if remote=$(git -C "$repo_dir" remote get-url origin 2>/dev/null) && [[ "$remote" == https://github.com/* ]]; then
+      git -C "$repo_dir" remote set-url origin "$(_github_ssh_url "$remote")"
+      echo "$name: origin -> $(_github_ssh_url "$remote")"
+      changed=true
+    fi
+
+    $changed || echo "$name: already SSH"
+  done
+
+  $found || { echo "Source not found: $filter"; return 1; }
+}
+
 # Manage sources in sources.list
 src() {
   local subcommand="${1:-}"
@@ -137,11 +179,16 @@ src() {
       fi
       ;;
 
+    ssh)
+      _src_ssh "$@"
+      ;;
+
     *)
-      echo "Usage: ppm src <add|remove|list>"
+      echo "Usage: ppm src <add|remove|list|ssh>"
       echo "  add [--top] <git-url> [alias]  Add a source repository"
       echo "  remove <url-or-alias>          Remove a source repository"
       echo "  list                           List configured sources"
+      echo "  ssh [alias]                    Switch GitHub HTTPS sources and remotes to SSH"
       [[ -z "$subcommand" ]] || exit 1
       ;;
   esac

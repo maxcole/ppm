@@ -7,20 +7,30 @@
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
-### Debian Linux
+### Debian 13
 ```bash
 wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
-Open a new shell when complete, then run `ppm list` to see available packages.
+Run it as your normal user, not root. Open a new shell when complete, then run `ppm list` to see available packages.
 
 ## What Gets Installed
 
 The install script:
-- Installs dependencies (Homebrew on MacOS, sudo on Linux)
-- Installs ppm to `~/.local/bin/ppm`
-- Creates config files in `~/.config/ppm/`
+- Installs Homebrew's prerequisites (Debian: `build-essential procps curl file git`; macOS: Xcode Command Line Tools)
+- Installs Homebrew if the machine doesn't have it, then `stow`, `yq` and `mise` from Homebrew (plus `bash` on macOS)
+- Adds GitHub's published SSH host keys to `~/.ssh/known_hosts`
+- Installs ppm to `~/.local/bin/ppm` and creates config files in `~/.config/ppm/`
 - Runs `ppm update` and installs packages (defaults to `zsh`)
+
+It asks for your sudo password at most once, and only when prerequisites or Homebrew are missing. Passwordless sudo is not needed, and re-running on a set-up machine doesn't prompt.
+
+## Multiple Users
+
+Homebrew supports one owner per installation, so ppm follows that:
+
+- The first user to run the installer on a machine installs Homebrew and owns it. Only that user installs or upgrades Homebrew packages.
+- Other users run the installer too. They use the owner's Homebrew tools without writing to it and don't need sudo. If a base tool is missing, the installer names it and tells them to ask the owner to install it.
 
 ## Commands
 
@@ -176,7 +186,7 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 
 ### Skip Dependencies
 
-Use `--skip-deps` to skip dependency installation (Homebrew, git, stow, etc.) if you already have them:
+Use `--skip-deps` to skip prerequisites and Homebrew setup if you manage them yourself (ppm still needs `git`, `stow` and `yq` on your PATH):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --skip-deps
 ```
@@ -192,7 +202,7 @@ chmod +x ./install.sh
 ./install.sh
 ```
 
-**Debian Linux**
+**Debian 13**
 ```bash
 wget -q https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh
 chmod +x ./install.sh

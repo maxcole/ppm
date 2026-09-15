@@ -62,8 +62,6 @@ remove_linux()     # OS-specific removal
 post_remove()      # runs after unstow
 ```
 
-Packages should NOT define a `dependencies()` function — use `package.yml` `depends` instead.
-
 Available functions packages can call from their hooks:
 - `install_dep <pkg...>` — install system packages via apt (Linux) or brew (macOS)
 - `debug "message"` — log debug info (visible with `--debug` flag)
@@ -109,16 +107,21 @@ Plans are in `chorus/units/`. Follow the Chorus methodology:
 
 ### Lib Structure
 
+`ppm` holds only bootstrap: paths, library sourcing, `*.conf` loading, flag parsing and dispatch. Each command lives in the lib file for its area, next to its helpers:
+
 ```
 lib/
-  core.sh      # os(), arch(), file utils, install_dep(), debug(), user_message(), ppm_fail()
-  update.sh    # update_brew_if_needed(), update_ppm_if_needed()
-  repo.sh      # collect_repos(), collect_packages()
-  stow.sh      # stow_subdir(), package_links(), force_remove_conflicts(), PPM_IGNORE_ARGS
-  meta.sh      # meta_depends(), meta_version(), installed tracking (per-package .yml files)
-  graph.sh     # resolve_deps(), find_package_dirs(), find_package_dir(), topo sort with layers
-  file.sh      # file_command(): `ppm file claim|reset`, claims.yml
+  core.sh        # API for package hooks: os(), arch(), install_dep(), add_to_file(), remove_from_file(),
+                 # debug(), user_message(), ppm_fail(), install_completion()
+  sources.sh     # src, update, package; collect_repos(), update_brew_if_needed(), update_ppm_if_needed()
+  packages.sh    # list, show, path, deps; collect_packages(), find_package_dirs(), resolve_deps() (layered topo sort),
+                 # package.yml reads (meta_depends, meta_version), install trackers (meta_mark_installed, ...)
+  installer.sh   # install, remove; install_single_package(), remover(), stow_package(), PPM_IGNORE_ARGS
+  file.sh        # file claim|reset (file_command), claims.yml
+  completion.sh  # completion
 ```
+
+Flags (`force`, `config`, `reinstall`, `skip_deps`) are locals of `main()` that commands read through dynamic scoping.
 
 Sourcing order in `ppm`:
 1. `$PPM_REPO_DIR/lib/*.sh` (ppm's own libraries)

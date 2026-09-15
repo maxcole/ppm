@@ -96,7 +96,7 @@ _file_claim() {
   is_repo_name "$target_repo" || { ppm_fail "Unknown repo '$target_repo'"; return 1; }
   [[ "$target_repo" == "$owner_repo" ]] && { ppm_fail "~/$rel already belongs to $owner"; return 1; }
 
-  local pkg_dir="$PPM_DATA_HOME/$target_repo/$PPM_ASSET_DIR/$target_pkg"
+  local pkg_dir="$PPM_DATA_HOME/$target_repo/packages/$target_pkg"
   local dest="$pkg_dir/home/$rel"
   if [[ -e "$dest" || -L "$dest" ]]; then
     ppm_fail "$dest already exists"
@@ -120,8 +120,8 @@ _file_claim() {
         echo "depends:"
         echo "  - $owner"
       fi
-    } > "$pkg_dir/$PPM_ASSET_META"
-    echo "Created ${PPM_ASSET_LABEL} $target_repo/$target_pkg"
+    } > "$pkg_dir/package.yml"
+    echo "Created package $target_repo/$target_pkg"
   fi
 
   mkdir -p "$(dirname "$dest")" && cp -pL "$src" "$dest" || { ppm_fail "Failed to copy ~/$rel to $dest"; return 1; }
@@ -162,7 +162,7 @@ _file_reset() {
   owner=$(_claim_get "$rel" owner)
 
   local c_repo="${claimant%%/*}" c_pkg="${claimant#*/}"
-  local c_dir="$PPM_DATA_HOME/$c_repo/$PPM_ASSET_DIR/$c_pkg"
+  local c_dir="$PPM_DATA_HOME/$c_repo/packages/$c_pkg"
   local repo_file="$c_dir/home/$rel" link="$HOME/$rel"
   PPM_CURRENT_PACKAGE="$claimant"
 
@@ -178,7 +178,7 @@ _file_reset() {
   fi
 
   local o_repo="${owner%%/*}" o_pkg="${owner#*/}"
-  local o_dir="$PPM_DATA_HOME/$o_repo/$PPM_ASSET_DIR/$o_pkg"
+  local o_dir="$PPM_DATA_HOME/$o_repo/packages/$o_pkg"
   if [[ -n "$owner" && -f "$o_dir/home/$rel" ]]; then
     # Restow only this file from the owner; everything else in the package is left as-is
     PPM_IGNORE_ARGS=()
@@ -214,10 +214,10 @@ _file_reset() {
 
   # Delete the claimant package if nothing is left in it
   if [[ -z "$(find "$c_dir/home" -type f 2>/dev/null)" ]] && \
-     [[ -z "$(ls -A "$c_dir" | grep -vxF -e home -e "$PPM_ASSET_META")" ]]; then
+     [[ -z "$(ls -A "$c_dir" | grep -vxF -e home -e "package.yml")" ]]; then
     rm -rf "$c_dir"
     meta_mark_removed "$c_repo" "$c_pkg"
-    echo "Removed empty ${PPM_ASSET_LABEL} $claimant"
+    echo "Removed empty package $claimant"
   fi
 
   user_message "Reset ~/$rel. Remember to commit the changes in $PPM_DATA_HOME/$c_repo"
@@ -250,19 +250,10 @@ _file_owner() {
   [[ "$rest" == "$target" ]] && return 0
   repo="${rest%%/*}"
   rest="${rest#*/}"
-  [[ "${rest%%/*}" == "$PPM_ASSET_DIR" ]] || return 0
+  [[ "${rest%%/*}" == "packages" ]] || return 0
   rest="${rest#*/}"
   [[ "$rest" == */* ]] || return 0
   echo "$repo/${rest%%/*}"
-}
-
-# Position of a repo in sources.list (lower is higher priority)
-_repo_index() {
-  local i
-  for i in "${!REPO_NAMES[@]}"; do
-    [[ "${REPO_NAMES[$i]}" == "$1" ]] && { echo "$i"; return; }
-  done
-  echo 9999
 }
 
 # Read a field (claimant|owner) of a claim
@@ -280,24 +271,4 @@ _claim_set() {
 _claim_del() {
   [[ -f "$PPM_CLAIMS_FILE" ]] || return 0
   K="$1" yq -i 'del(.[strenv(K)])' "$PPM_CLAIMS_FILE"
-}
-
-# Add a file to a package's install tracker (creating the tracker if needed)
-_tracker_add_file() {
-  local repo="$1" pkg="$2" pkg_dir="$3" rel="$4"
-  local tracker
-  tracker=$(_tracker_path "$repo" "$pkg")
-  if [[ -f "$tracker" ]]; then
-    F="$rel" yq -i '.files = ((.files // []) + [strenv(F)] | unique)' "$tracker"
-  else
-    meta_mark_installed "$repo" "$pkg" "$pkg_dir" "$(package_links "$pkg_dir/home")"
-  fi
-}
-
-# Remove a file from a package's install tracker
-_tracker_remove_file() {
-  local tracker
-  tracker=$(_tracker_path "$1" "$2")
-  [[ -f "$tracker" ]] || return 0
-  F="$3" yq -i 'del(.files[] | select(. == strenv(F)))' "$tracker"
 }

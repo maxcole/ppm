@@ -73,26 +73,6 @@ _sed_inplace() {
   fi
 }
 
-# Creates symlinks in target_dir for each entry in the list
-create_symlinks() {
-  local target_dir="$1"
-  shift
-  local entries=("$@")
-
-  for entry in "${entries[@]}"; do
-    local name=$(basename "$entry")
-    local link_path="$target_dir/$name"
-    if [ ! -L "$link_path" ]; then
-      ln -s "$entry" "$link_path"
-    fi
-  done
-}
-
-# Check if entry is a git URL (not a local path)
-is_git_url() {
-  [[ "$1" == git@* || "$1" == *://* ]]
-}
-
 # Install dependencies using the OS specific package manager (apt or homebrew)
 install_dep() {
   if [[ "$(os)" == "linux" ]]; then

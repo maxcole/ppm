@@ -84,6 +84,10 @@ Repos in `sources.list` are processed in order. When a package exists in multipl
 - `ppm install git` installs every `git` package in source order (e.g. `user/git`, then `pde/git`). The layers share one stow ignore list (`PPM_IGNORE_ARGS`), so files stowed by a higher-priority layer are skipped by lower ones. This lets personal repos override individual files.
 - `ppm install pde/git` installs only that layer. It hits a stow conflict on files owned by a higher layer; this is intended.
 
+## Homebrew Ownership
+
+Homebrew supports one owner per installation (`/opt/homebrew` on Apple silicon macOS, `/home/linuxbrew/.linuxbrew` on Linux; Intel Macs are not supported). The user who installed it owns it and is the only one who installs, updates or upgrades formulas. Other users on the machine run the tools but never write to the prefix. ppm puts brew on PATH itself (`brew_env`), skips `brew update` for non-owners, and uses `brew_require_owner` to tell a non-owner which command the owner has to run.
+
 ## Claiming Files
 
 - `ppm file claim <file...> [--repo REPO] [--package NAME]` copies files into `REPO/NAME/home/` and stows them from there. The default repo is `$PPM_DEFAULT_REPO` (default `user`, settable in `ppm.conf`). The default package has the same name as the owning package. A new package with a different name gets `depends: [<owner>]`.
@@ -113,7 +117,9 @@ Plans are in `chorus/units/`. Follow the Chorus methodology:
 lib/
   core.sh        # API for package hooks: os(), arch(), install_dep(), add_to_file(), remove_from_file(),
                  # debug(), user_message(), ppm_fail()
-  sources.sh     # src, update, package; collect_repos(), update_brew_if_needed(), update_ppm_if_needed()
+  platform.sh    # platform() (macos/debian), brew_prefix(), brew_env(), brew_owner(), brew_is_owner(),
+                 # brew_require_owner(), update_brew_if_needed()
+  sources.sh     # src, update, package; collect_repos(), update_ppm_if_needed()
   packages.sh    # list, show, path, deps; collect_packages(), find_package_dirs(), resolve_deps() (layered topo sort),
                  # package.yml reads (meta_depends, meta_version), install trackers (meta_mark_installed, ...)
   installer.sh   # install, remove; install_single_package(), remover(), stow_package(), PPM_IGNORE_ARGS

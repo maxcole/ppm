@@ -11,7 +11,7 @@ PPM_IGNORE_ARGS=()
 # Install one or more packages as requested by the user
 install() {
   update_ppm_if_needed
-  [[ "$(os)" == "macos" ]] && update_brew_if_needed
+  update_brew_if_needed
   expand_packages "install" "$@"
   # Reinstall only re-stows files, so bypass pre_remove guards
   $reinstall && force=true remover "${EXPANDED_PACKAGES[@]}"

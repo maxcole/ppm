@@ -8,6 +8,7 @@
 #   file.sh        file (claim, reset)
 #   completion.sh  completion
 # core.sh holds the functions package hooks can call (install_dep, user_message, ...)
+# platform.sh detects the platform and locates Homebrew and its owner
 set -euo pipefail
 
 list_commands() {
@@ -52,6 +53,9 @@ PPM_REPO_DIR="$(_resolve_path "$0")"
 for lib_file in "$PPM_REPO_DIR"/lib/*.sh "$PPM_LIB_DIR"/*.sh; do
   [[ -f "$lib_file" ]] && source "$lib_file"
 done
+
+# Put Homebrew on PATH even without the user's shell setup (cron, sudo -iu, env -i)
+brew_env
 
 # Entrypoint for commands that need sources.list and ppm.conf
 main() {

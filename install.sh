@@ -65,7 +65,7 @@ PPM_USER_URL=https://raw.githubusercontent.com/maxcole/user-ppm/refs/heads/main
 PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
 
 OS_RELEASE=${PPM_OS_RELEASE:-/etc/os-release}
-BREW_PREFIXES="/opt/homebrew /usr/local /home/linuxbrew/.linuxbrew"
+BREW_PREFIXES="/opt/homebrew /home/linuxbrew/.linuxbrew"
 DEBIAN_PREREQS="build-essential procps curl file git"
 
 # From https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints

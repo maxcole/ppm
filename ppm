@@ -327,7 +327,8 @@ install() {
   update_ppm_if_needed
   [[ "$(os)" == "macos" ]] && update_brew_if_needed
   expand_packages "install" "$@"
-  $reinstall && remover "${EXPANDED_PACKAGES[@]}"
+  # Reinstall only re-stows files, so bypass pre_remove guards
+  $reinstall && force=true remover "${EXPANDED_PACKAGES[@]}"
 
   collect_repos
 

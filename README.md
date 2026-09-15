@@ -100,14 +100,7 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 
 **Precedence**: Repositories are processed in the physical order in which they are declared in `sources.list`. When a file exists in multiple repositories at exactly the same path and name then an identical file exists. In order to avoid conflict the first occurance of the file takes precedence. Any identical files in subsequent repositories will be skipped/ignored. This feature allows personal repositories to override defaults in other repositories.
 
-### Install on a remote host
-
-To install ghostty terminfo to a remote host:
-```bash
-infocmp -x |ssh user@remote-host "tic -x -"
-```
-
-Copy your authorized_keys to the remote host
+**Copy your authorized_keys to the remote host:**
 ```bash
 ssh-copy-id user@host
 ```

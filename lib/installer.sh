@@ -74,12 +74,16 @@ remover() {
       local has_hook
       [[ -f "$asset_dir/$PPM_ASSET_HOOK" ]] && has_hook=true || has_hook=false
 
-      # Phase 1: pre_remove hook
+      # Phase 1: pre_remove hook — a non-zero return aborts the removal unless -f
       if $has_hook; then
-        (
-          source "$asset_dir/$PPM_ASSET_HOOK"
-          type pre_remove &>/dev/null && pre_remove || true
-        )
+        if ! ( source "$asset_dir/$PPM_ASSET_HOOK"; ! type pre_remove &>/dev/null || pre_remove ); then
+          if ${force:-false}; then
+            echo "Warning: pre_remove failed for $repo_name/$asset_name; continuing (-f)"
+          else
+            echo "Aborted: $repo_name/$asset_name not removed (use -f to force)"
+            exit 1
+          fi
+        fi
       fi
 
       # Phase 2: profile-specific remove

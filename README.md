@@ -227,3 +227,16 @@ ppm user remove testuser   # delete the user and their home directory
 ```
 
 Run `ppm user` for all subcommands.
+
+It also adds `ppm container` for testing in disposable Debian and Fedora containers (requires podman). Containers test your working tree: your repos are mounted read-only, so edits show up in the container without committing.
+
+```bash
+ppm container start debian          # build the image if needed and start ppm-debian
+ppm container install debian        # run install.sh as owner (sudo password: owner)
+ppm container shell debian other    # log in as the second user, who has no sudo
+ppm container snapshot debian brew  # save the state after Homebrew is installed
+ppm container reset debian brew     # start over from that snapshot in seconds
+ppm container install debian --pushed  # in a fresh container: the installer from GitHub
+```
+
+Containers don't replace VMs: they have no systemd services, login sessions or kernel features.

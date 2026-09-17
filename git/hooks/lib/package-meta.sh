@@ -68,36 +68,6 @@ meta_extract_depends() {
   )
 }
 
-# Detect supported OS from install.sh function names
-# Returns YAML array string like "[macos, linux]"
-# Usage: meta_detect_os <package_dir>
-meta_detect_os() {
-  local pkg_dir="$1"
-  local install_file="$pkg_dir/install.sh"
-  local has_macos=false has_linux=false
-
-  if [[ ! -f "$install_file" ]]; then
-    # No install.sh — home-only package, assume both
-    echo "[macos, linux]"
-    return
-  fi
-
-  grep -q 'install_macos' "$install_file" && has_macos=true
-  grep -q 'install_linux' "$install_file" && has_linux=true
-
-  # If neither OS-specific function found, check for generic hooks only
-  if ! $has_macos && ! $has_linux; then
-    # Has install.sh but no OS-specific functions — assume both
-    echo "[macos, linux]"
-  elif $has_macos && $has_linux; then
-    echo "[macos, linux]"
-  elif $has_macos; then
-    echo "[macos]"
-  else
-    echo "[linux]"
-  fi
-}
-
 # Format depends list as YAML array string
 # Usage: meta_format_depends "mise ruby"  →  "[mise, ruby]"
 meta_format_depends() {
@@ -114,13 +84,10 @@ meta_bootstrap() {
 
   [[ -f "$meta_file" ]] && return 0
 
-  local deps os_list
-
+  local deps
   deps=$(meta_extract_depends "$pkg_dir")
-  os_list=$(meta_detect_os "$pkg_dir")
 
   echo "version: 0.1.0" > "$meta_file"
-  echo "os: ${os_list}" >> "$meta_file"
 
   if [[ -n "$deps" ]]; then
     echo "depends: $(meta_format_depends "$deps")" >> "$meta_file"

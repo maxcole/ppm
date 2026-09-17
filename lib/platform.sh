@@ -101,3 +101,65 @@ update_brew_if_needed() {
     date +%s > "$cache_file"
   fi
 }
+
+# --- Package managers: install what is missing, never upgrade ---
+
+# System packages from the arguments that are not installed, one per line
+system_pkg_missing() {
+  local pkg
+  case "$(platform)" in
+    debian)
+      for pkg in "$@"; do
+        [[ "$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null)" == "install ok installed" ]] || echo "$pkg"
+      done
+      ;;
+    macos) ;;
+    *) printf '%s\n' "$@" ;;
+  esac
+}
+
+# Install system packages with the distro package manager (prompts for sudo at most once)
+system_pkg_install() {
+  local what="$*"
+  case "$(platform)" in
+    debian)
+      _system_sudo "$what" || return 1
+      sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq </dev/null &&
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" </dev/null
+      ;;
+    *)
+      ppm_fail "Installing system packages is not supported on $(platform): $what"
+      return 1
+      ;;
+  esac
+}
+
+# Get sudo credentials with a normal prompt; on failure report what an admin has to install
+_system_sudo() {
+  local what="$1"
+  if command -v sudo >/dev/null 2>&1 && { sudo -n true 2>/dev/null || sudo -v; }; then
+    return 0
+  fi
+  ppm_fail "Installing system packages needs sudo; ask an admin to install: $what"
+  return 1
+}
+
+# Brew formulas from the arguments that are not installed (tap-qualified names match their last part)
+brew_missing() {
+  local prefix name
+  prefix=$(brew_prefix)
+  for name in "$@"; do
+    [[ -n "$prefix" && -e "$prefix/opt/${name##*/}" ]] || echo "$name"
+  done
+}
+
+# Casks from the arguments that are not installed
+# Homebrew installs casks on Linux too; a cask that is macOS-only (a GUI app) belongs
+# under a platform map in package.yml rather than being skipped here
+cask_missing() {
+  local prefix name
+  prefix=$(brew_prefix)
+  for name in "$@"; do
+    [[ -n "$prefix" && -d "$prefix/Caskroom/${name##*/}" ]] || echo "$name"
+  done
+}

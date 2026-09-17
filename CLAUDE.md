@@ -49,6 +49,32 @@ depends:
 - `depends` — list of package names (resolved across repos in source order)
 - No `depends` key if package has no dependencies
 
+Software a package needs is declared, not installed from hooks:
+
+```yaml
+platforms: [macos]          # optional: macos, linux, debian; omit = every platform
+
+brew: [tmux, bat]           # list: every platform
+cask: [claude-code]         # Homebrew casks install on Linux too; GUI apps need a map (below)
+
+system:                     # distro package manager
+  debian: [nfs-kernel-server]
+
+# a map picks per platform: exact platform first, then "linux" on any distro
+brew:
+  macos: [podman, podman-compose]
+system:
+  linux: [podman, podman-compose]
+cask:
+  macos: [ghostty]          # GUI apps: macOS only
+```
+
+- `ppm install` refuses packages whose `platforms` exclude this machine (`ppm install repo/` skips them), then installs what is missing in one batch per manager before any hook runs: system packages (one sudo prompt), brew formulas, casks (on macOS and Linux). Only the Homebrew owner installs brew/cask; other users get the command to ask for.
+- A `system` map with entries for other distros but not this one (and no `linux` key) is an error.
+- Mise tools: stow `home/.config/mise/conf.d/<tool>.toml`; after stowing, ppm runs `mise install` for the tools named in the resolved packages' toml files.
+- Trackers record the formulas/casks ppm installed (`installed_deps`). `ppm remove` uninstalls them when no other installed package recorded or declares them. System packages are never removed.
+- `-c` skips all of this, like hooks.
+
 ### install.sh Hooks
 
 ```bash
@@ -62,8 +88,9 @@ remove_linux()     # OS-specific removal
 post_remove()      # runs after unstow
 ```
 
+Hooks are for imperative work (services, generated config, vendor installers). Software a package needs is declared in `package.yml` (`brew`, `cask`, `system`) and installed by ppm before the hooks run.
+
 Available functions packages can call from their hooks:
-- `install_dep <pkg...>` — install system packages via apt (Linux) or brew (macOS)
 - `debug "message"` — log debug info (visible with `--debug` flag)
 - `user_message "message"` — queue a message for the user (displayed after install completes). Supports `\n` for line breaks. Auto-prefixed with `[repo/package]`.
 - `ppm_fail "message"` — signal a non-fatal install failure. Prints to stderr immediately and queues for end-of-run summary. Caller should `return` after calling.
@@ -115,7 +142,7 @@ Plans are in `chorus/units/`. Follow the Chorus methodology:
 
 ```
 lib/
-  core.sh        # API for package hooks: os(), arch(), install_dep(), add_to_file(), remove_from_file(),
+  core.sh        # API for package hooks: os(), arch(), add_to_file(), remove_from_file(),
                  # debug(), user_message(), ppm_fail()
   platform.sh    # platform() (macos/debian), brew_prefix(), brew_env(), brew_owner(), brew_is_owner(),
                  # brew_require_owner(), update_brew_if_needed()

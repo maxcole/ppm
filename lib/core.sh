@@ -74,22 +74,6 @@ _sed_inplace() {
 }
 
 # Install dependencies using the OS specific package manager (apt or homebrew)
-install_dep() {
-  if [[ "$(os)" == "linux" ]]; then
-    sudo apt install "$@" -y
-  elif [[ "$(os)" == "macos" ]]; then
-    local cask_flag=""
-    [[ "${1:-}" == "--cask" ]] && { cask_flag="--cask"; shift; }
-    for dep in "$@"; do
-      if ! brew list $cask_flag "$dep" &>/dev/null; then
-        brew install --yes $cask_flag "$dep"
-      elif brew outdated $cask_flag --quiet | grep -q "^${dep}$"; then
-        brew upgrade $cask_flag "$dep"
-      fi
-    done
-  fi
-}
-
 # Debug logging — enabled by --debug flag
 PPM_DEBUG=${PPM_DEBUG:-false}
 

@@ -38,6 +38,16 @@ expand_packages() {
       arg="${arg%/}"
       collect_packages "$arg"
       [[ ${#PACKAGES[@]} -eq 0 ]] && { echo "Error: No packages found in repo '$arg'"; exit 1; }
+      local supported=() p
+      for p in "${PACKAGES[@]}"; do
+        if meta_supported "$PPM_DATA_HOME/${p%%/*}/packages/${p#*/}"; then
+          supported+=("$p")
+        else
+          echo "Skipping $p: not supported on $(platform)"
+        fi
+      done
+      [[ ${#supported[@]} -gt 0 ]] || { echo "Error: No packages in repo '$arg' support $(platform)"; exit 1; }
+      PACKAGES=("${supported[@]}")
       if ! $force; then
         echo "About to $verb all packages (${#PACKAGES[@]}) from $arg:"
         printf '  %s\n' "${PACKAGES[@]}"
@@ -199,6 +209,69 @@ meta_version() {
   yq -r '.version // ""' "$meta" 2>/dev/null
 }
 
+# Platforms a package supports (macos, linux, debian, ...); nothing means every platform
+# Usage: meta_platforms <package_dir>
+meta_platforms() {
+  local meta="$1/package.yml"
+  [[ -f "$meta" ]] || return 0
+  yq -r '.platforms[]? // ""' "$meta" 2>/dev/null
+}
+
+# True when the package supports this machine; "linux" covers every Linux distro
+# Usage: meta_supported <package_dir>
+meta_supported() {
+  local platforms current p
+  platforms=$(meta_platforms "$1")
+  [[ -z "$platforms" ]] && return 0
+  current=$(platform)
+  for p in $platforms; do
+    [[ "$p" == "$current" ]] && return 0
+    [[ "$p" == "linux" && "$current" != "macos" ]] && return 0
+  done
+  return 1
+}
+
+# Dependencies a package declares for one manager (brew, cask or system), resolved for this platform.
+# A list applies on every platform. A map is keyed by platform: the exact platform first, then
+# "linux" on any Linux distro. Returns 1 for a system map that names other Linux distros but
+# neither this one nor "linux", so callers can fail instead of skipping silently.
+# Usage: meta_deps <package_dir> <brew|cask|system>
+meta_deps() {
+  local meta="$1/package.yml" key="$2" type current
+  [[ -f "$meta" ]] || return 0
+
+  type=$(K="$key" yq -r '.[strenv(K)] | type' "$meta" 2>/dev/null)
+  case "$type" in
+    '!!seq')
+      K="$key" yq -r '.[strenv(K)][]' "$meta" 2>/dev/null
+      ;;
+    '!!map')
+      current=$(platform)
+      if K="$key" P="$current" yq -e '.[strenv(K)] | has(strenv(P))' "$meta" >/dev/null 2>&1; then
+        K="$key" P="$current" yq -r '.[strenv(K)][strenv(P)][]?' "$meta" 2>/dev/null
+      elif [[ "$current" != "macos" ]] && K="$key" yq -e '.[strenv(K)] | has("linux")' "$meta" >/dev/null 2>&1; then
+        K="$key" yq -r '.[strenv(K)].linux[]?' "$meta" 2>/dev/null
+      elif [[ "$key" == "system" && "$current" != "macos" ]] &&
+           K="$key" yq -e '.[strenv(K)] | keys | map(select(. != "macos")) | length > 0' "$meta" >/dev/null 2>&1; then
+        return 1
+      fi
+      ;;
+  esac
+  return 0
+}
+
+# Add items to a newline-separated list, skipping empty items and duplicates (keeps first-seen order)
+# Usage: list=$(_list_add "$list" item...)
+_list_add() {
+  local list="$1" item
+  shift
+  for item in "$@"; do
+    [[ -n "$item" ]] || continue
+    grep -qxF -- "$item" <<< "$list" || list="${list:+$list$'\n'}$item"
+  done
+  printf '%s' "$list"
+}
+
 # --- Install trackers ($PPM_INSTALLED_DIR/<repo>/<pkg>.yml) ---
 
 # Path to a package's tracker file
@@ -206,11 +279,13 @@ _tracker_path() {
   echo "$PPM_INSTALLED_DIR/$1/$2.yml"
 }
 
-# Record a package as installed with its stowed file list
-# Usage: meta_mark_installed <repo_name> <package_name> <package_dir> <files>
-# files are passed as a newline-separated string
+# Record a package as installed with its stowed files and the brew formulas and casks ppm
+# installed for it. Dependencies recorded by an earlier install are kept, so a later install that
+# finds them already present doesn't lose track of who installed them.
+# Usage: meta_mark_installed <repo_name> <package_name> <package_dir> <files> [brew_names] [cask_names]
+# files are newline-separated; brew/cask names are whitespace-separated
 meta_mark_installed() {
-  local repo_name="$1" pkg_name="$2" pkg_dir="$3" stowed_files="$4"
+  local repo_name="$1" pkg_name="$2" pkg_dir="$3" stowed_files="$4" new_brew="${5:-}" new_cask="${6:-}"
   local tracker
   tracker=$(_tracker_path "$repo_name" "$pkg_name")
   local version
@@ -219,6 +294,11 @@ meta_mark_installed() {
 
   local timestamp
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  # Read before the tracker is rewritten
+  local brew cask
+  brew=$(_list_add "$(meta_installed_deps "$repo_name" "$pkg_name" brew)" $new_brew)
+  cask=$(_list_add "$(meta_installed_deps "$repo_name" "$pkg_name" cask)" $new_cask)
 
   mkdir -p "$(dirname "$tracker")"
 
@@ -230,6 +310,11 @@ meta_mark_installed() {
       echo "$stowed_files" | while IFS= read -r f; do
         [[ -n "$f" ]] && echo "  - $f"
       done
+    fi
+    if [[ -n "$brew$cask" ]]; then
+      echo "installed_deps:"
+      [[ -z "$brew" ]] || { echo "  brew:"; printf '    - %s\n' $brew; }
+      [[ -z "$cask" ]] || { echo "  cask:"; printf '    - %s\n' $cask; }
     fi
   } > "$tracker"
 }
@@ -269,6 +354,15 @@ meta_installed_files() {
   tracker=$(_tracker_path "$1" "$2")
   [[ -f "$tracker" ]] || return 0
   yq -r '.files[]? // ""' "$tracker" 2>/dev/null
+}
+
+# Brew formulas or casks that ppm installed for a package, one per line
+# Usage: meta_installed_deps <repo_name> <package_name> <brew|cask>
+meta_installed_deps() {
+  local tracker
+  tracker=$(_tracker_path "$1" "$2")
+  [[ -f "$tracker" ]] || return 0
+  M="$3" yq -r '.installed_deps[strenv(M)][]?' "$tracker" 2>/dev/null
 }
 
 # Add a file to a package's install tracker (creating the tracker if needed)
@@ -364,10 +458,35 @@ show() {
       echo ""
     fi
 
+    local platforms_list manager names label shown=false
+    platforms_list=$(meta_platforms "$package_dir")
+    if [[ -n "$platforms_list" ]]; then
+      echo "Platforms: $(echo $platforms_list)"
+      shown=true
+    fi
+    for manager in brew cask system; do
+      case "$manager" in
+        brew) label="Brew" ;;
+        cask) label="Cask" ;;
+        system) label="System ($(platform))" ;;
+      esac
+      names=$(meta_deps "$package_dir" "$manager") || names="none declared for $(platform)"
+      if [[ -n "$names" ]]; then
+        echo "$label: $(echo $names)"
+        shown=true
+      fi
+    done
+    ! $shown || echo ""
+
     if meta_is_installed "$repo_name" "$package_name"; then
       local inst_version
       inst_version=$(meta_installed_version "$repo_name" "$package_name")
       echo "Status: installed (v${inst_version})"
+
+      for manager in brew cask; do
+        names=$(meta_installed_deps "$repo_name" "$package_name" "$manager")
+        [[ -z "$names" ]] || echo "Installed by ppm ($manager): $(echo $names)"
+      done
 
       local inst_files
       inst_files=$(meta_installed_files "$repo_name" "$package_name")

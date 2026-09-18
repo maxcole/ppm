@@ -9,11 +9,10 @@ PPM is a bash-based personal package manager that combines GNU Stow (symlink-bas
 The PPM ecosystem is multiple git repos, all cloned under `~/.local/share/ppm/`:
 
 ```
-~/.local/share/ppm/
+~/.local/share/ppm/          (each directory is named by its source alias)
   ppm/              ← this repo (the tool itself)
-  pde-ppm/          ← Personal Development Environment packages
-  pdt-ppm/          ← Product Development Toolkit packages
-  rjayroach-ppm/    ← Personal overrides (highest priority)
+  ai/ pdt/ pde/     ← default package repos (system.list)
+  user/             ← your customization repo: the "user" source, highest priority
 ```
 
 This repo (`ppm/`) contains:
@@ -107,7 +106,7 @@ Available functions packages can call from their hooks:
 - `~/.local/share/ppm/.installed/protected.yml` — files `ppm file protect` detached from ppm; seeded into stow's ignore list so they are never re-linked
 - `~/.local/bin/ppm` — the ppm script (stowed from `ppm/system`)
 - `~/.local/lib/ppm/*.sh` — ppm's own libraries (stowed from `ppm/system`) plus package-contributed library extensions. Extensions add helpers for hooks (e.g. `pde/ruby`'s `install_gem`) or commands: a function named `foo` becomes `ppm foo` (e.g. `ppm/dev`'s `ppm user`)
-- `~/.cache/ppm/` — cache files (brew/ppm update timestamps)
+- `~/.cache/ppm/` — cache files: `brew_last_update`, and `updated/<alias>` — each repo's last successful clone/pull. `ppm install` auto-updates only the repos older than `PPM_UPDATE_CACHE_DURATION` (default 24h); a repo skipped for uncommitted changes stays stale on its own and is rechecked next time. Install prints one `Not updated (uncommitted changes): <repos>` line for them; `PPM_QUIET_SKIPPED_REPOS=true` in `ppm.conf` moves it to `--debug`
 
 ## Source Precedence
 
@@ -119,6 +118,16 @@ copy is a layer:
 
 - `ppm install git` installs every `git` package in source order (e.g. `user/git`, then `pde/git`). The layers share one stow ignore list (`PPM_IGNORE_ARGS`), so files stowed by a higher-priority layer are skipped by lower ones. This lets personal repos override individual files.
 - `ppm install pde/git` installs only that layer. It hits a stow conflict on files owned by a higher layer; this is intended.
+
+## Your Customization Repo
+
+The alias `user` (`PPM_USER_REPO_ALIAS` in `core.sh`) is always your own repo:
+
+- `ppm customize` creates it locally: `git init` at `~/.local/share/ppm/user`, a `system` package holding `user.list` (listing the repo itself, as a local path), registered at the top of `user.list`, then `ppm install -f user/system` swaps the plain `user.list` for a link into the repo. It is dispatched through `main()` because it calls `install`.
+- Its `system` package is a layer of `ppm/system`, so files it ships (e.g. its own `ppm.conf`) win over ppm's defaults.
+- `install.sh --repo <url>` registers that URL as `user` and installs `user/system` with `-f`.
+- `ppm file claim` defaults to it.
+- Local-path sources are never pulled: after pushing it, set the `user` line in `user.list` to the git URL.
 
 ## Homebrew Ownership
 
@@ -164,7 +173,7 @@ packages/system/home/.local/lib/ppm/
                  # debug(), user_message(), ppm_fail()
   platform.sh    # platform() (macos/debian), brew_prefix(), brew_env(), brew_owner(), brew_is_owner(),
                  # brew_require_owner(), update_brew_if_needed()
-  sources.sh     # src, update, package; collect_repos(), update_ppm_if_needed()
+  sources.sh     # src (add, remove, list, ssh, update), customize; collect_repos(), update_ppm_if_needed()
   packages.sh    # list, show, path, deps; collect_packages(), find_package_dirs(), resolve_deps() (layered topo sort),
                  # package.yml reads (meta_depends, meta_version), install trackers (meta_mark_installed, ...)
   installer.sh   # install, remove; install_single_package(), remover(), stow_package(), PPM_IGNORE_ARGS

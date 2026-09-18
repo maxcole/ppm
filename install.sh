@@ -3,23 +3,26 @@
 # PPM Install Script
 #
 # WHAT THIS SCRIPT DOES:
-#   1. Clones ppm to ~/.local/share/ppm/ppm and sources its libraries, so this
-#      bootstrap reuses ppm's own os()/platform()/brew_* helpers instead of copies
-#   2. Installs Homebrew's prerequisites (Debian: apt packages; macOS: Xcode Command
-#      Line Tools), asking for sudo only when something is missing
+#   1. Sources ppm's libraries, so this bootstrap reuses ppm's own os()/platform()/brew_*
+#      helpers instead of copies: from the checkout it runs from, an existing clone, or a
+#      download (curl ... | bash)
+#   2. Installs Homebrew's prerequisites (Debian: apt packages, including git; macOS: Xcode
+#      Command Line Tools), asking for sudo only when something is missing
 #   3. Installs Homebrew if the machine has none (this user becomes its owner), or uses
 #      the existing installation without writing to it when another user owns it
 #   4. Installs ppm's base tools from Homebrew: stow, yq, mise (and bash on macOS) —
 #      ppm cannot parse a package.yml (yq) or stow anything until these exist, so they
 #      stay an imperative bootstrap and never become tracked ppm dependencies
-#   5. Stows the ppm/system package (this ppm script, its libraries and ppm.zsh) into
-#      $HOME, which is what puts ~/.local/bin/ppm on PATH
+#   5. Clones ppm to ~/.local/share/ppm/ppm (git is available now) and stows its
+#      ppm/system package (the ppm script, its libraries, its default config — ppm.conf and
+#      system.list — and ppm.zsh) into $HOME, which is what puts ~/.local/bin/ppm on PATH.
+#      Files protected with `ppm file protect` are left alone.
 #   6. Adds GitHub's published SSH host keys to ~/.ssh/known_hosts
-#   7. Seeds ~/.config/ppm/ppm.conf (from the user-ppm template) and an empty user.list.
-#      The default repo list (system.list) is stowed from ppm/system in step 5.
-#   8. With --repo: adds your repo and installs its ppm package, which replaces the
-#      seeded config files with links into your repo
-#   9. Runs 'ppm update', installs any requested packages, then 'ppm install ppm/system'
+#   7. Seeds an empty ~/.config/ppm/user.list (your repos) and ppm.local.conf (machine-local
+#      settings)
+#   8. With --repo: adds your customization repo as the "user" source (highest priority) and
+#      installs its system package, which replaces the seeded user.list with a link into it
+#   9. Runs 'ppm src update', installs any requested packages, then 'ppm install ppm/system'
 #      to record ppm itself in the install tracker (no package is installed by default)
 #
 # FILES CREATED:
@@ -29,13 +32,14 @@
 #   ~/.config/zsh/ppm.zsh            ppm's zsh wrapper (stowed from ppm/system)
 #   ~/.config/ppm/system.list        default repo list (stowed from ppm/system)
 #   ~/.config/ppm/user.list          your repos (a link into your repo with --repo)
-#   ~/.config/ppm/ppm.conf           seeded from the template (a link into your repo with --repo)
+#   ~/.config/ppm/ppm.conf           default settings (stowed from ppm/system)
 #   ~/.config/ppm/ppm.local.conf     machine-local settings
 #   ~/.local/share/ppm/<repo>/       cloned package repos
 #
 # EXTERNAL FETCHES:
 #   https://github.com/maxcole/ppm.git
-#   https://raw.githubusercontent.com/maxcole/user-ppm/...             config templates
+#   https://raw.githubusercontent.com/maxcole/ppm/...                  ppm's libraries, only when
+#                                                                      piped (no checkout to read)
 #   https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh  only when Homebrew is missing
 #
 # SUDO USAGE:
@@ -45,7 +49,8 @@
 # SUPPORTED PLATFORMS: macOS, Debian 13 (and derivatives that declare ID_LIKE=debian)
 #
 # OPTIONS:
-#   --repo <url>    add your package repo first (or set PPM_INSTALL_REPO)
+#   --repo <url>    your customization repo (see `ppm customize`), added as the "user" source
+#                   (or set PPM_INSTALL_REPO)
 #   --script-only   only clone ppm, stow the system package and seed config (needs stow)
 #   --skip-deps     skip prerequisites and Homebrew setup (you manage them)
 #   <package...>    packages to install (or set PPM_INSTALL_PACKAGES; none by default)
@@ -70,9 +75,17 @@ PPM_CONFIG_HOME=$XDG_CONFIG_HOME/ppm
 PPM_DATA_HOME=$XDG_DATA_HOME/ppm
 
 PPM_REPO_URL=https://github.com/maxcole/ppm.git
+PPM_RAW_URL=https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main
 PPM_REPO_DIR=$PPM_DATA_HOME/ppm
 PPM_SYSTEM_DIR=$PPM_REPO_DIR/packages/system
-PPM_USER_URL=https://raw.githubusercontent.com/maxcole/user-ppm/refs/heads/main
+PPM_LIB_SUBDIR=packages/system/home/.local/lib/ppm
+PPM_INSTALLED_DIR=$PPM_DATA_HOME/.installed   # read by file.sh (protected.yml)
+
+# ppm's libraries this bootstrap reuses: platform/brew helpers, and its own stow (protected files)
+PPM_BOOTSTRAP_LIBS="core.sh platform.sh file.sh installer.sh"
+
+# This script's own path; empty when piped (curl ... | bash), a file when run from a checkout
+PPM_INSTALLER_PATH="${BASH_SOURCE[0]:-}"
 PPM_USER_SOURCES=$PPM_CONFIG_HOME/user.list
 
 DEBIAN_PREREQS="build-essential procps curl file git"
@@ -92,22 +105,51 @@ die()  { echo -e "${RED}Error:${NC} $*" >&2; exit 1; }
 # Clone the ppm repo (which contains the ppm/system package). No linking here — the
 # ppm script lands on PATH when ppm/system is stowed (stow_system).
 clone_ppm() {
-  command -v git >/dev/null 2>&1 || die "git is required"
   mkdir -p "$BIN_DIR" "$PPM_DATA_HOME" "$PPM_CONFIG_HOME"
   if [[ ! -d "$PPM_REPO_DIR" ]]; then
+    command -v git >/dev/null 2>&1 || die "git is required to clone ppm (drop --skip-deps to install it)"
     git clone "$PPM_REPO_URL" "$PPM_REPO_DIR"
   fi
 }
 
 
-# Source ppm's own libraries from the clone so this bootstrap reuses os(), platform(),
-# brew_prefix(), brew_owner(), brew_env(), system_pkg_*(), brew_missing(), brew_is_owner()
-# instead of keeping copies here.
+# Download a URL to a file with curl or wget (a fresh machine may have only one)
+fetch() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$1" -o "$2"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$2" "$1"
+  else
+    die "curl or wget is required"
+  fi
+}
+
+
+# Source ppm's own libraries so this bootstrap reuses os(), platform(), brew_prefix(),
+# brew_owner(), brew_env(), system_pkg_*(), brew_missing(), brew_is_owner() instead of
+# keeping copies here. This runs before the clone: the prerequisites it installs are what
+# provide git. The libraries come from, in order:
+#   1. the checkout this script is running from (./install.sh, bash /src/ppm/install.sh)
+#   2. an existing clone (a re-run)
+#   3. a download from GitHub (curl ... | bash has no checkout)
 source_libs() {
-  local lib_dir="$PPM_SYSTEM_DIR/home/.local/lib/ppm"
-  [[ -f "$lib_dir/core.sh" ]] || die "ppm libraries not found at $lib_dir (clone failed?)"
-  source "$lib_dir/core.sh"
-  source "$lib_dir/platform.sh"
+  local dir="" tmp f
+  [[ -f "$PPM_INSTALLER_PATH" ]] && dir="$(cd "$(dirname "$PPM_INSTALLER_PATH")" && pwd)/$PPM_LIB_SUBDIR"
+  [[ -f "$dir/core.sh" ]] || dir="$PPM_REPO_DIR/$PPM_LIB_SUBDIR"
+
+  # installer.sh defines functions named install and remove; install.sh never runs those
+  # commands itself, and child processes (the Homebrew installer) don't inherit them
+  if [[ -f "$dir/core.sh" ]]; then
+    for f in $PPM_BOOTSTRAP_LIBS; do source "$dir/$f"; done
+    return
+  fi
+
+  tmp=$(mktemp -d)
+  for f in $PPM_BOOTSTRAP_LIBS; do
+    fetch "$PPM_RAW_URL/$PPM_LIB_SUBDIR/$f" "$tmp/$f" || die "Could not download ppm's $f"
+  done
+  for f in $PPM_BOOTSTRAP_LIBS; do source "$tmp/$f"; done
+  rm -rf "$tmp"   # sourcing has read them
 }
 
 
@@ -198,24 +240,22 @@ setup_known_hosts() {
 
 # Stow the ppm/system package into $HOME: this is what puts ~/.local/bin/ppm on PATH and
 # ~/.local/lib/ppm/*.sh in place, so `ppm` becomes runnable. Idempotent (stow re-links).
+# Uses ppm's own stow_package, seeded with the files `ppm file protect` detached, so a re-run
+# leaves protected files alone exactly as `ppm install` does.
 # rm -f clears the pre-package links from older installs before the first stow.
 stow_system() {
   command -v stow >/dev/null 2>&1 || die "stow is required to link ppm (install it or drop --skip-deps)"
   rm -f "$BIN_DIR/ppm" "$XDG_CONFIG_HOME/zsh/ppm.zsh"
-  stow --no-folding -d "$PPM_SYSTEM_DIR" -t "$HOME" home
+  local force=false   # read by stow_package; the bootstrap never force-removes
+  _reset_ignore_args
+  stow_package "$PPM_SYSTEM_DIR"
 }
 
 
-# Seed config. system.list comes from stowing ppm/system; here we seed ppm.conf (from the
-# template) and an empty user.list the user can add repos to. A repo's ppm package can later
-# replace these with links (install_repo).
+# Seed the machine's own config. ppm.conf and system.list come from stowing ppm/system; here we
+# seed an empty user.list the user can add repos to, and machine-local settings. A repo's
+# package can later replace user.list with a link into that repo (install_repo).
 install_ppm_configs() {
-  local pkg_path=packages/ppm/home/.config/ppm
-
-  if [[ ! -e "$PPM_CONFIG_HOME/ppm.conf" ]]; then
-    curl -fsSL "$PPM_USER_URL/$pkg_path/ppm.conf" -o "$PPM_CONFIG_HOME/ppm.conf"
-  fi
-
   if [[ ! -e "$PPM_USER_SOURCES" ]]; then
     printf '# Your ppm sources (highest priority). Add with: ppm src add <git-url> [alias]\n' \
       > "$PPM_USER_SOURCES"
@@ -227,24 +267,25 @@ install_ppm_configs() {
 }
 
 
+# --repo: your customization repo (see `ppm customize`), always registered as the "user" source
+# (highest priority). Its system package is a layer of ppm/system; installing it with -f swaps the
+# seeded user.list for the repo's copy, which lists the repo itself.
 install_repo() {
-  local repo_name repo_config
-  repo_name=$(basename "$repo_url" .git)
+  local alias="$PPM_USER_REPO_ALIAS"
+  local pkg_dir="$PPM_DATA_HOME/$alias/packages/system"
 
-  ppm src add --top "$repo_url"
-  ppm update
+  ppm src add --top "$repo_url" "$alias"
+  ppm src update "$alias"
 
-  if [[ ! -d "$PPM_DATA_HOME/$repo_name/packages/ppm" ]]; then
-    warn "$repo_name has no ppm package; ~/.config/ppm keeps the seeded config files"
+  if [[ ! -d "$pkg_dir" ]]; then
+    warn "$repo_url has no system package; ~/.config/ppm keeps the seeded config files"
     return 0
   fi
 
-  # -f replaces the seeded regular files with links into the repo
-  ppm install -f "$repo_name/ppm"
+  ppm install -f "$alias/system"
 
-  repo_config="$PPM_DATA_HOME/$repo_name/packages/ppm/home/.config/ppm/user.list"
-  if [[ -e "$repo_config" && ! -L "$PPM_USER_SOURCES" ]]; then
-    warn "$PPM_USER_SOURCES is not a link into $repo_name; edits there won't be saved in your repo"
+  if [[ -e "$pkg_dir/home/.config/ppm/user.list" && ! -L "$PPM_USER_SOURCES" ]]; then
+    warn "$PPM_USER_SOURCES is not a link into your repo; edits there won't be saved in it"
   fi
 }
 
@@ -292,10 +333,10 @@ EOF
 
   [[ "$(id -u)" -ne 0 ]] || die "Run as your normal user, not root (Homebrew refuses to run as root)"
 
-  clone_ppm
   source_libs
 
   if $script_only; then
+    clone_ppm
     brew_env   # put an existing Homebrew (hence stow) on PATH if there is one
     stow_system
     install_ppm_configs
@@ -317,11 +358,12 @@ EOF
       die "ppm needs yq and stow on PATH after setup; check the Homebrew install above"
   fi
 
+  clone_ppm   # after the prerequisites: they are what provide git
   stow_system
   install_ppm_configs
   setup_known_hosts
   [[ -z "$repo_url" ]] || install_repo
-  ppm update || warn "ppm update skipped one or more repos (uncommitted changes)"
+  ppm src update || warn "ppm src update skipped one or more repos (uncommitted changes)"
   install_packages ${packages[@]+"${packages[@]}"}
 
   echo -e "\n${GREEN}Installation complete!${NC}"

@@ -6,7 +6,7 @@
 #
 # Commands are implemented in the libraries under ~/.local/lib/ppm/ (stowed from
 # packages/system/home/.local/lib/ppm/):
-#   sources.sh     src, update, package
+#   sources.sh     src (add, remove, list, ssh, update), customize
 #   packages.sh    list, show, path, deps
 #   installer.sh   install, remove
 #   file.sh        file (claim, reset)
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 list_commands() {
-  echo "Available commands: src, update, list, install, remove, show, deps, path, cd, package, file, completion"
+  echo "Available commands: src, list, install, remove, show, deps, path, cd, customize, file, completion"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -121,6 +121,5 @@ main() {
 case "${1:-}" in
   completion) completion "${@:2}" ;;
   src) src "${@:2}" ;;
-  package) package "${@:2}" ;;
   *) main "$@" ;;
 esac

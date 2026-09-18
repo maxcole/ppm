@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Core utility functions for ppm
 
+# Your customization repo is always the "user" source: created by `ppm customize`, registered by
+# `install.sh --repo <url>`, highest priority, and the default repo for `ppm file claim`
+PPM_USER_REPO_ALIAS=user
+
 # Detect the CPU architecture
 arch() {
   local arch=$(uname -m)

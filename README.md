@@ -21,7 +21,7 @@ The install script:
 - Installs Homebrew if the machine doesn't have it, then `stow`, `yq` and `mise` from Homebrew (plus `bash` on macOS)
 - Adds GitHub's published SSH host keys to `~/.ssh/known_hosts`
 - Installs ppm to `~/.local/bin/ppm` and creates config files in `~/.config/ppm/`
-- Runs `ppm update` and installs packages (defaults to `zsh`)
+- Runs `ppm src update` and installs any packages you name (none by default)
 
 It asks for your sudo password at most once, and only when prerequisites or Homebrew are missing. Passwordless sudo is not needed, and re-running on a set-up machine doesn't prompt.
 
@@ -41,14 +41,14 @@ ppm install [PACKAGE]      # Install a specific package from all repos
 ppm install [REPO/PACKAGE] # Install a specific package from a specific repo
 ppm src add [REPO_URL]     # Add a package repository
 ppm src ssh [REPO]         # Switch GitHub HTTPS sources and remotes to SSH
-ppm update                 # Update (git clone/pull) package repositories
+ppm src update             # Update (git clone/pull) package repositories
 ```
 
 After installing a package, run `zsrc` to reload zsh configuration.
 
 ## Default Sources
 
-The install creates a `sources.list` with the following sources (in priority order):
+The `ppm/system` package ships `system.list` with these default sources (in priority order). Your own sources go in `user.list` and take priority over them (see [Customizing](#customizing-your-own-repo)):
 
 1. **[ai-ppm](https://github.com/maxcole/ai-ppm)** - AI packages.
 
@@ -60,38 +60,34 @@ The install creates a `sources.list` with the following sources (in priority ord
 
 See each repo's README for available packages.
 
-## Creating Your Personal Package Repo
+## Customizing: Your Own Repo
 
-Use `ppm package` to bootstrap a new personal package repository:
+Run `ppm customize` to start customizing this machine:
 
 ```bash
-ppm package git@github.com:user/my-ppm
+ppm customize
 ```
 
 This command:
-1. Adds the repo URL to the top of your sources list
-2. Clones the repo
-3. Populates it with default packages from [user-ppm](https://github.com/maxcole/user-ppm)
-4. Copies your current ppm config (sources.list, ppm.conf)
-5. Commits the initial packages
-6. Installs the ppm package with `-f` to link the config
+1. Creates a local git repo at `~/.local/share/ppm/user` and registers it as the `user` source (highest priority)
+2. Gives it a `system` package holding your `user.list` (the list of your sources), so that list now lives in your repo
+3. Stows it: `~/.config/ppm/user.list` becomes a link into the repo
 
-After running, push your changes:
-```bash
-cd ~/.local/share/ppm/my-ppm
-git push
-```
+From there:
+- Take over any ppm-managed file with `ppm file claim <file>` (claims go to the `user` repo by default)
+- Add your own packages under `~/.local/share/ppm/user/packages/`
+- Commit your changes in `~/.local/share/ppm/user`
 
-Your personal repo is now the highest priority source, allowing you to customize packages and override defaults from other repos.
+To use your repo on other machines, add a remote and push it, and change the `user` line in `user.list` to its git URL. Then install new machines with `--repo` (see below).
 
 ## Good to Know
 
-**Portability**: Back up your personal repo to git and you can port your entire system configuration to a new machine by passing your repo URL to the install script:
+**Portability**: Push your customization repo (see `ppm customize`) to git and you can port your entire system configuration to a new machine by passing its URL to the install script. It is registered as the `user` source and its `system` package is installed:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --repo git@github.com:user/my-ppm
 ```
 
-You can also specify which packages to install (defaults to `zsh`):
+You can also specify which packages to install (none by default):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash -s -- --repo git@github.com:user/my-ppm zsh vim tmux
 ```
@@ -109,7 +105,7 @@ export PPM_INSTALL_PACKAGES="git nvim zsh"
 curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
-**Precedence**: Repositories are processed in the physical order in which they are declared in `sources.list`. When a file exists in multiple repositories at exactly the same path and name then an identical file exists. In order to avoid conflict the first occurance of the file takes precedence. Any identical files in subsequent repositories will be skipped/ignored. This feature allows personal repositories to override defaults in other repositories.
+**Precedence**: Repositories are processed in the order they are declared: `user.list` first, then `system.list`. When a file exists in multiple repositories at exactly the same path and name then an identical file exists. In order to avoid conflict the first occurance of the file takes precedence. Any identical files in subsequent repositories will be skipped/ignored. This feature allows personal repositories to override defaults in other repositories.
 
 **Copy your authorized_keys to the remote host:**
 ```bash
@@ -118,12 +114,14 @@ ssh-copy-id user@host
 
 ## Updates
 
-**Updates**: `ppm update` skips repos with uncommitted changes to protect local modifications. Commit or stash to receive updates.
+**Updates**: `ppm src update` pulls every source repo now, skipping repos with uncommitted changes to protect local modifications. Commit or stash to receive updates.
 
 **Update a specific remote**:
 ```bash
-ppm update <repo>
+ppm src update <repo>
 ```
+
+**Automatic updates**: `ppm install` pulls only the repos that haven't been updated in the last `PPM_UPDATE_CACHE_DURATION` seconds (default 24 hours), tracked per repo. Repos it skips for uncommitted changes are listed in one line, `Not updated (uncommitted changes): <repos>`, and checked again on the next install. To hide that line, set `PPM_QUIET_SKIPPED_REPOS=true` in `ppm.conf` (it still shows with `--debug`).
 
 
 ## 1Password Integration
@@ -169,9 +167,9 @@ If for some reason your repo was not cloned, e.g. it is a private repo and you n
 
 ```bash
 export PPM_INSTALL_REPO=git@github.com:user/my-ppm
-ppm src add --top $PPM_INSTALL_REPO
-ppm update
-ppm install -f ppm
+ppm src add --top $PPM_INSTALL_REPO user
+ppm src update user
+ppm install -f user/system
 ```
 
 You should now have access to all of your personal packages.
@@ -215,7 +213,7 @@ To contribute to ppm or modify the install process:
 
 ```bash
 ppm src add git@github.com:maxcole/ppm
-ppm update
+ppm src update
 ppm install ppm/dev
 ```
 

@@ -23,7 +23,7 @@ ppm() {
   else
     command ppm "$@"
     local ret=$?
-    if [[ $ret -eq 0 && "$1" =~ ^(install|update|remove)$ ]]; then
+    if [[ $ret -eq 0 && ( "$1" =~ ^(install|remove)$ || ( "$1" == src && "${2:-}" == update ) ) ]]; then
       zsrc
       compinit
     fi

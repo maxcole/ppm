@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Source repositories: the source lists, cloning and updating, and the src/update/package commands
+# Source repositories: the source lists, cloning and updating, and the src and package commands
 #
 # Repos are read from two lists in priority order:
 #   user.list   (yours; edited by `ppm src`) — highest priority
@@ -259,112 +259,179 @@ src() {
       _src_ssh "$@"
       ;;
 
+    update)
+      _src_update "$@"
+      ;;
+
     *)
-      echo "Usage: ppm src <add|remove|list|ssh>"
+      echo "Usage: ppm src <add|remove|list|ssh|update>"
       echo "  add [--top] <git-url> [alias]  Add a source repository"
       echo "  remove <url-or-alias>          Remove a source repository"
       echo "  list                           List configured sources"
       echo "  ssh [alias]                    Switch GitHub HTTPS sources and remotes to SSH"
+      echo "  update [alias...]              Clone missing and pull existing source repositories"
       [[ -z "$subcommand" ]] || exit 1
       ;;
   esac
 }
 
-# Add a remote repo source and pull its contents
-package() {
-  if [[ $# -eq 0 ]]; then
-    echo "Error: package requires a git URL"
-    echo "Usage: ppm package <git-url>"
-    exit 1
+# `ppm customize`: start customizing this machine. Creates a local git repo as the "user"
+# source with a system package (a layer of ppm/system) that holds user.list, and stows it — so
+# from here your source list lives in your own repo. Dispatched through main(): it calls install.
+customize() {
+  local alias="$PPM_USER_REPO_ALIAS"
+  local repo_dir="$PPM_DATA_HOME/$alias"
+  local config_dir="$repo_dir/packages/system/home/.config/ppm"
+  local user_file
+
+  collect_repos
+  if [[ " ${REPO_NAMES[*]:-} " == *" $alias "* ]]; then
+    echo "Error: a '$alias' source already exists; this machine is already customized"
+    return 1
+  fi
+  if [[ -e "$repo_dir" ]]; then
+    echo "Error: $repo_dir already exists"
+    return 1
+  fi
+  if [[ -L "$PPM_USER_SOURCES" ]]; then
+    echo "Error: $PPM_USER_SOURCES is already a link into a package ($(readlink "$PPM_USER_SOURCES"))"
+    return 1
+  fi
+  if _protected_has "${PPM_USER_SOURCES#$HOME/}"; then
+    echo "Error: $PPM_USER_SOURCES is protected; run 'ppm file unprotect' on it first"
+    return 1
   fi
 
-  local url="$1" user_ppm_url=https://github.com/maxcole/user-ppm.git
-  local repo_name=$(basename "$url" .git)
-  local repo_dir="$PPM_DATA_HOME/$repo_name"
+  # The repo, with a system package that will own user.list
+  mkdir -p "$config_dir"
+  git -C "$repo_dir" init -q
+  printf 'version: 0.1.0\nauthor: %s\n' "${USER:-unknown}" > "$repo_dir/packages/system/package.yml"
 
-  src add --top "$url"
-  update
+  # Register the repo at the top of the user list. A local path: it is never pulled until you
+  # give it a remote. The repo's copy of the list must list the repo itself, or once it is
+  # stowed nothing registers "user" and the repo drops out of the sources.
+  src add --top "$repo_dir" "$alias"
+  user_file=$(_user_sources_file)
+  cp "$user_file" "$config_dir/user.list"
 
-  if [[ ! -d "$repo_dir" ]]; then
-    echo "Error: Failed to clone '$repo_name'"
-    exit 1
-  fi
+  # -f swaps the plain user.list for a link into the repo (same content). Only the user layer:
+  # it is the top layer so it can't conflict, and -f stays away from ppm/system.
+  force=true install "$alias/system"
 
-  # Bootstrap with default packages from user-ppm
-  rm -rf "$repo_dir/packages"
-  git clone "$user_ppm_url" /tmp/user-ppm
-  cp -a /tmp/user-ppm/packages "$repo_dir/"
-  rm -rf /tmp/user-ppm
-
-  # Copy user's current ppm config (the user source list, not the ppm-managed system.list)
-  mkdir -p "$repo_dir/packages/ppm/home/.config/ppm"
-  cp "$PPM_CONFIG_HOME/ppm.conf" "$(_user_sources_read)" "$repo_dir/packages/ppm/home/.config/ppm/" 2>/dev/null || true
-
-  # Commit the initial packages
-  git -C "$repo_dir" add packages
-  git -C "$repo_dir" commit -m "add initial packages"
-
-  # Install ppm package
-  install -f "$repo_name/ppm"
-
-  echo "Package source '$repo_name' ready. Don't forget to push the updates"
+  echo ""
+  echo "ppm is now customizable from $repo_dir (source '$alias', highest priority)."
+  echo "  - $PPM_USER_SOURCES lives in that repo now; commit it"
+  echo "  - take over any ppm-managed file with: ppm file claim <file>"
+  echo "  - to use it on other machines: add a remote and push, change the '$alias' line in"
+  echo "    user.list to that git URL, then on a new machine run: install.sh --repo <git-url>"
 }
 
-# Iterate over repos from the merged source lists and clone them to $PPM_DATA_HOME
-update() {
-  local filter="${1:-}"
-  local all_updated=true
+# --- Per-repo update times: $PPM_CACHE_HOME/updated/<alias> holds the epoch of the repo's last
+# successful clone or pull. Tracking each repo separately means one repo that is skipped (local
+# changes) stays stale on its own instead of making every install pull all the others again.
+
+_repo_updated_file() {
+  echo "$PPM_CACHE_HOME/updated/$1"
+}
+
+# Record that a repo was just cloned or pulled
+_repo_mark_updated() {
+  mkdir -p "$PPM_CACHE_HOME/updated"
+  date +%s > "$(_repo_updated_file "$1")"
+}
+
+# True when a repo has never been updated, or not within PPM_UPDATE_CACHE_DURATION seconds
+_repo_stale() {
+  local file last duration="${PPM_UPDATE_CACHE_DURATION:-86400}"
+  file=$(_repo_updated_file "$1")
+  [[ -f "$file" ]] || return 0
+  last=$(cat "$file" 2>/dev/null)
+  [[ "$last" =~ ^[0-9]+$ ]] || return 0
+  (( $(date +%s) - last > duration ))
+}
+
+# `ppm src update [alias...]`: clone missing and pull existing repos from the merged source lists
+# into $PPM_DATA_HOME — all of them, or only the named aliases. Each successful clone/pull records
+# that repo's update time. Repos with uncommitted changes are skipped and left stale, so they are
+# checked again next time. Returns 1 if any repo was skipped or failed.
+# --auto (used by update_ppm_if_needed): report skipped repos in one summary line instead of one
+# per repo, since install repeats it on every run while a repo has changes; set
+# PPM_QUIET_SKIPPED_REPOS=true in ppm.conf to show it only with --debug.
+_src_update() {
+  local auto=false
+  [[ "${1:-}" == "--auto" ]] && { auto=true; shift; }
+  local wanted=" $* " all_updated=true i repo_url repo_name dir skipped=()
 
   collect_repos
 
   for i in "${!REPO_URLS[@]}"; do
-    local repo_url="${REPO_URLS[$i]}"
-    local repo_name="${REPO_NAMES[$i]}"
+    repo_url="${REPO_URLS[$i]}"
+    repo_name="${REPO_NAMES[$i]}"
+    dir="$PPM_DATA_HOME/$repo_name"
 
-    # Skip local paths that aren't git URLs
-    if ! is_git_url "$repo_url"; then
-      continue
-    fi
+    # Local paths are never cloned or pulled
+    is_git_url "$repo_url" || continue
+    # When aliases are named, only those
+    [[ $# -eq 0 || "$wanted" == *" $repo_name "* ]] || continue
 
-    # If a specific repo was requested, skip non-matching ones
-    if [[ -n "$filter" && "$repo_name" != "$filter" ]]; then
-      continue
-    fi
-
-    if [ ! -d $PPM_DATA_HOME/$repo_name ]; then
+    if [[ ! -d "$dir" ]]; then
       echo "Cloning: $repo_url"
-      git clone $repo_url $PPM_DATA_HOME/$repo_name
-    else
-      # Check for uncommitted changes or untracked files
-      if ! git -C "$PPM_DATA_HOME/$repo_name" diff --quiet || \
-         ! git -C "$PPM_DATA_HOME/$repo_name" diff --cached --quiet || \
-         [[ -n $(git -C "$PPM_DATA_HOME/$repo_name" status --porcelain) ]]; then
-        echo "Skipping $repo_name: has uncommitted changes. Please commit or stash them first."
+      if git clone "$repo_url" "$dir"; then
+        _repo_mark_updated "$repo_name"
+      else
         all_updated=false
-        continue
       fi
+      continue
+    fi
 
-      debug "Pulling latest for $repo_name"
-      echo "Updating: $repo_name"
-      git -C "$PPM_DATA_HOME/$repo_name" pull
+    # Uncommitted changes or untracked files: skip, leaving the repo stale
+    if ! git -C "$dir" diff --quiet || ! git -C "$dir" diff --cached --quiet ||
+       [[ -n $(git -C "$dir" status --porcelain) ]]; then
+      if $auto; then
+        skipped+=("$repo_name")   # reported once, below
+      else
+        echo "Skipping $repo_name: has uncommitted changes. Please commit or stash them first."
+      fi
+      all_updated=false
+      continue
+    fi
+
+    echo "Updating: $repo_name"
+    if git -C "$dir" pull; then
+      _repo_mark_updated "$repo_name"
+    else
+      all_updated=false
     fi
   done
 
-  $all_updated || return 1
-}
-
-# Auto-update repos if cache duration has elapsed
-update_ppm_if_needed() {
-  local cache_duration="${PPM_UPDATE_CACHE_DURATION:-86400}"
-  local cache_file="$PPM_CACHE_HOME/ppm_last_update"
-
-  if [[ ! -f "$cache_file" ]] || [[ $(($(date +%s) - $(cat "$cache_file"))) -gt $cache_duration ]]; then
-    [[ ! -d "$PPM_CACHE_HOME" ]] && mkdir -p "$PPM_CACHE_HOME"
-    debug "PPM repos stale, running update"
-    if update; then
-      date +%s > "$cache_file"
+  # During install, one line for all skipped repos; PPM_QUIET_SKIPPED_REPOS=true (ppm.conf)
+  # moves it to --debug output
+  if [[ ${#skipped[@]} -gt 0 ]]; then
+    local list
+    printf -v list '%s, ' "${skipped[@]}"
+    if [[ "${PPM_QUIET_SKIPPED_REPOS:-false}" == true ]]; then
+      debug "Not updated (uncommitted changes): ${list%, }"
     else
-      debug "PPM update incomplete, timer not reset"
+      echo "Not updated (uncommitted changes): ${list%, }"
     fi
   fi
+
+  $all_updated
+}
+
+# Auto-update (run by install): pull only the repos that are stale — never updated, or not within
+# PPM_UPDATE_CACHE_DURATION seconds. Fresh repos aren't touched.
+update_ppm_if_needed() {
+  local stale=() i
+  collect_repos
+  for i in "${!REPO_NAMES[@]}"; do
+    is_git_url "${REPO_URLS[$i]}" || continue
+    if _repo_stale "${REPO_NAMES[$i]}"; then
+      stale+=("${REPO_NAMES[$i]}")
+    fi
+  done
+
+  [[ ${#stale[@]} -gt 0 ]] || return 0
+  debug "Stale repos: ${stale[*]}"
+  _src_update --auto "${stale[@]}" || debug "Some repos were not updated; they stay stale"
 }

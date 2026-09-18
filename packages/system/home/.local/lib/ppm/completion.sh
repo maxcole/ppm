@@ -15,8 +15,7 @@ _ppm() {
     local state
 
     subcommands=(
-        'src:Manage source repositories (add, remove, list)'
-        'update:Update repositories'
+        'src:Manage source repositories (add, remove, list, ssh, update)'
         'list:List available packages'
         'ls:List available packages (alias for list)'
         'install:Install one or more packages'
@@ -25,7 +24,7 @@ _ppm() {
         'path:Output path to a package directory'
         'cd:Change to a package directory'
         'completion:Output shell completion'
-        'package:Add a source repo and pull its contents'
+        'customize:Create your own "user" repo to customize ppm'
         'file:Claim files into your repo or reset them'
     )
 
@@ -42,7 +41,7 @@ _ppm() {
                 src)
                     if [[ ${#words[@]} -eq 3 ]]; then
                         local -a src_cmds
-                        src_cmds=('add:Add a source repository' 'remove:Remove a source repository' 'list:List configured sources' 'ssh:Switch GitHub HTTPS sources to SSH')
+                        src_cmds=('add:Add a source repository' 'remove:Remove a source repository' 'list:List configured sources' 'ssh:Switch GitHub HTTPS sources to SSH' 'update:Clone and pull source repositories')
                         _describe 'subcommand' src_cmds
                     fi
                     ;;

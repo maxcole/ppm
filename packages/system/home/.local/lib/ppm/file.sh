@@ -26,7 +26,7 @@ _file_usage() {
 
 # Entry point for `ppm file` (dispatched from main)
 file_command() {
-  PPM_DEFAULT_REPO="${PPM_DEFAULT_REPO:-user}"
+  PPM_DEFAULT_REPO="${PPM_DEFAULT_REPO:-$PPM_USER_REPO_ALIAS}"
 
   local repo="" package="" args=()
   while [[ $# -gt 0 ]]; do

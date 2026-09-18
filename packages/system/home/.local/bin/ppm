@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # ppm — personal package manager
 #
-# Commands are implemented in lib/:
+# ppm is itself the `ppm/system` package: this script and its libraries are stowed
+# from packages/system/home/ into ~/.local/bin and ~/.local/lib/ppm.
+#
+# Commands are implemented in the libraries under ~/.local/lib/ppm/ (stowed from
+# packages/system/home/.local/lib/ppm/):
 #   sources.sh     src, update, package
 #   packages.sh    list, show, path, deps
 #   installer.sh   install, remove
@@ -32,12 +36,20 @@ PPM_DATA_HOME="${PPM_DATA_HOME:-$XDG_DATA_HOME/ppm}"
 PPM_CACHE_HOME="${PPM_CACHE_HOME:-$XDG_CACHE_HOME/ppm}"
 
 # Derived paths (not overridable — derived from above)
-PPM_SOURCES_FILE="$PPM_CONFIG_HOME/sources.list"
+# Repos come from two lists: system.list (shipped by ppm/system, ppm-managed) and
+# user.list (yours). sources.list is the pre-split legacy name, still read as the user list.
+PPM_SYSTEM_SOURCES="$PPM_CONFIG_HOME/system.list"
+PPM_USER_SOURCES="$PPM_CONFIG_HOME/user.list"
+PPM_LEGACY_SOURCES="$PPM_CONFIG_HOME/sources.list"
 PPM_INSTALLED_DIR="$PPM_DATA_HOME/.installed"
 PPM_LIB_DIR="${HOME}/.local/lib/ppm"
 BIN_DIR="${HOME}/.local/bin"
+# The ppm repo's clone location (fixed name under PPM_DATA_HOME); ppm itself is the
+# ppm/system package stowed from packages/system/ within it
+PPM_REPO_DIR="$PPM_DATA_HOME/ppm"
 
-# Resolve the repo directory (works through symlinks)
+# Resolve a path through symlinks to the directory of its real target
+# (used here and by package extensions such as dev's container.sh)
 _resolve_path() {
   local path="$1"
   while [[ -L "$path" ]]; do
@@ -47,20 +59,21 @@ _resolve_path() {
   done
   echo "$(cd "$(dirname "$path")" && pwd)"
 }
-PPM_REPO_DIR="$(_resolve_path "$0")"
 
-# Source ppm's libraries, then package-contributed extensions
-for lib_file in "$PPM_REPO_DIR"/lib/*.sh "$PPM_LIB_DIR"/*.sh; do
+# Source ppm's own libraries and any package-contributed extensions. Both live in
+# PPM_LIB_DIR: ppm's core libs are stowed there by the ppm/system package, alongside
+# extensions from other packages (e.g. dev's container.sh, user.sh).
+for lib_file in "$PPM_LIB_DIR"/*.sh; do
   [[ -f "$lib_file" ]] && source "$lib_file"
 done
 
 # Put Homebrew on PATH even without the user's shell setup (cron, sudo -iu, env -i)
 brew_env
 
-# Entrypoint for commands that need sources.list and ppm.conf
+# Entrypoint for commands that need a source list and ppm.conf
 main() {
-  if [[ ! -f $PPM_SOURCES_FILE ]]; then
-    echo "ERROR: Missing $PPM_SOURCES_FILE"
+  if [[ ! -f "$PPM_SYSTEM_SOURCES" && ! -f "$PPM_USER_SOURCES" && ! -f "$PPM_LEGACY_SOURCES" ]]; then
+    echo "ERROR: No sources configured (expected $PPM_USER_SOURCES or $PPM_SYSTEM_SOURCES)"
     exit 1
   fi
   # Source all *.conf files from PPM_CONFIG_HOME

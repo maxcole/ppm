@@ -1,24 +1,55 @@
 #!/usr/bin/env bash
-# Source repositories: sources.list, cloning and updating, and the src/update/package commands
+# Source repositories: the source lists, cloning and updating, and the src/update/package commands
+#
+# Repos are read from two lists in priority order:
+#   user.list   (yours; edited by `ppm src`) — highest priority
+#   system.list (shipped by ppm/system) — the batteries-included defaults
+# sources.list is the pre-split legacy name; if user.list is absent it is read as the user list.
 
-# Read sources.list into REPO_URLS and REPO_NAMES (source order is priority order)
-# Supports two-column format: URL alias (alias is optional, defaults to basename)
+# The user-managed source list `ppm src` edits. Migrates a plain legacy sources.list to
+# user.list once (a symlinked legacy file — a config claimed into a repo — is left in place).
+_user_sources_file() {
+  if [[ ! -e "$PPM_USER_SOURCES" && -f "$PPM_LEGACY_SOURCES" && ! -L "$PPM_LEGACY_SOURCES" ]]; then
+    mv "$PPM_LEGACY_SOURCES" "$PPM_USER_SOURCES"
+  fi
+  echo "$PPM_USER_SOURCES"
+}
+
+# The user list to READ from: user.list if present, else the legacy sources.list
+_user_sources_read() {
+  if [[ -f "$PPM_USER_SOURCES" ]]; then
+    echo "$PPM_USER_SOURCES"
+  elif [[ -f "$PPM_LEGACY_SOURCES" ]]; then
+    echo "$PPM_LEGACY_SOURCES"
+  fi
+}
+
+# Read the source lists into REPO_URLS and REPO_NAMES (array order is priority order).
+# User entries come first, then system entries; an alias declared in both wins from the user
+# list. Two-column format per line: URL alias (alias optional, defaults to basename).
 collect_repos() {
   REPO_URLS=()
   REPO_NAMES=()
 
-  while IFS= read -r line || [ -n "$line" ]; do
-    # Skip empty lines and comments
-    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+  local seen=" " file line url name
+  for file in "$(_user_sources_read)" "$PPM_SYSTEM_SOURCES"; do
+    [[ -n "$file" && -f "$file" ]] || continue
+    while IFS= read -r line || [ -n "$line" ]; do
+      # Skip empty lines and comments
+      [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
 
-    local url name
-    read -r url name <<< "$line"
-    [[ -z "$name" ]] && name="$(basename "$url" .git)"
+      read -r url name <<< "$line"
+      [[ -z "$name" ]] && name="$(basename "$url" .git)"
 
-    REPO_URLS+=("$url")
-    REPO_NAMES+=("$name")
-    debug "Source: $url -> $name"
-  done < "$PPM_SOURCES_FILE"
+      # Dedup by alias; the first occurrence (user list) wins
+      [[ "$seen" == *" $name "* ]] && continue
+      seen="$seen$name "
+
+      REPO_URLS+=("$url")
+      REPO_NAMES+=("$name")
+      debug "Source: $url -> $name"
+    done < "$file"
+  done
 }
 
 # Check if argument is a known repo name (exists in PPM_DATA_HOME)
@@ -45,11 +76,13 @@ _github_ssh_url() {
   echo "git@github.com:${1#https://github.com/}"
 }
 
-# Switch GitHub HTTPS entries in sources.list, and the origin remotes of cloned repos, to SSH
+# Switch GitHub HTTPS entries in the user source list, and the origin remotes of cloned repos,
+# to SSH. Only the user list is rewritten; system.list is ppm-managed and left alone.
 # Usage: _src_ssh [alias]
 _src_ssh() {
   local filter="${1:-}"
-  [[ -f "$PPM_SOURCES_FILE" ]] || { echo "No sources configured"; return 1; }
+  local user_file
+  user_file=$(_user_sources_file)
   collect_repos
 
   local i name url repo_dir remote changed found=false
@@ -61,12 +94,14 @@ _src_ssh() {
     url="${REPO_URLS[$i]}"
     repo_dir="$PPM_DATA_HOME/$name"
 
-    if [[ "$url" == https://github.com/* ]]; then
+    # Rewrite the list entry only when it lives in the user list
+    if [[ "$url" == https://github.com/* ]] && [[ -f "$user_file" ]] &&
+       awk -v u="$url" '$1 == u { found=1 } END { exit !found }' "$user_file"; then
       local tmp
       tmp=$(awk -v old="$url" -v new="$(_github_ssh_url "$url")" \
-        '$1 == old { sub(/^[^[:space:]]+/, new) } { print }' "$PPM_SOURCES_FILE")
-      printf '%s\n' "$tmp" > "$PPM_SOURCES_FILE"
-      echo "$name: sources.list -> $(_github_ssh_url "$url")"
+        '$1 == old { sub(/^[^[:space:]]+/, new) } { print }' "$user_file")
+      printf '%s\n' "$tmp" > "$user_file"
+      echo "$name: $(basename "$user_file") -> $(_github_ssh_url "$url")"
       changed=true
     fi
 
@@ -82,7 +117,27 @@ _src_ssh() {
   $found || { echo "Source not found: $filter"; return 1; }
 }
 
-# Manage sources in sources.list
+# Print each entry of a source list file with its clone status (clean/dirty/missing)
+_src_list_file() {
+  local file="$1" line alias repo_dir status
+  [[ -n "$file" && -f "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    alias="${line##* }"
+    repo_dir="$PPM_DATA_HOME/$alias"
+    status="missing"
+    if [[ -d "$repo_dir/.git" ]]; then
+      if [[ -z "$(git -C "$repo_dir" status --porcelain 2>/dev/null)" ]]; then
+        status="clean"
+      else
+        status="dirty"
+      fi
+    fi
+    printf "%s  %s\n" "$line" "$status"
+  done < "$file"
+}
+
+# Manage sources in the user list (add/remove/ssh); list shows both user and system
 src() {
   local subcommand="${1:-}"
   shift 2>/dev/null || true
@@ -103,26 +158,28 @@ src() {
       # Create config directory if it doesn't exist
       mkdir -p "$PPM_CONFIG_HOME"
 
-      # Create sources.list if it doesn't exist
-      touch "$PPM_SOURCES_FILE"
+      # src always edits the user list (never system.list)
+      local user_file
+      user_file=$(_user_sources_file)
+      touch "$user_file"
 
       local alias="${2:-$(basename "$url" .git)}"
       local entry="$url  $alias"
 
-      # Check if URL already exists in sources.list (match first column)
-      if awk '{print $1}' "$PPM_SOURCES_FILE" 2>/dev/null | grep -qxF "$url"; then
+      # Check if URL already exists in the user list (match first column)
+      if awk '{print $1}' "$user_file" 2>/dev/null | grep -qxF "$url"; then
         echo "Source already exists: $url"
         return 0
       fi
 
-      # Add entry to sources.list
+      # Add entry to the user list
       if $top; then
         local tmp=$(mktemp)
         echo "$entry" > "$tmp"
-        cat "$PPM_SOURCES_FILE" >> "$tmp"
-        mv "$tmp" "$PPM_SOURCES_FILE"
+        cat "$user_file" >> "$tmp"
+        mv "$tmp" "$user_file"
       else
-        echo "$entry" >> "$PPM_SOURCES_FILE"
+        echo "$entry" >> "$user_file"
       fi
       echo "Added source: $url ($alias)"
       ;;
@@ -136,16 +193,19 @@ src() {
 
       local target="$1"
       local removed=false
+      local user_file
+      user_file=$(_user_sources_file)
 
-      # Match on either URL (first column) or alias (second column)
+      # Match on either URL (first column) or alias (second column) in the user list.
       # Use awk instead of sed to avoid delimiter conflicts with URLs containing /
-      if awk -v t="$target" '$1 == t || $NF == t { found=1 } END { exit !found }' "$PPM_SOURCES_FILE" 2>/dev/null; then
+      if [[ -f "$user_file" ]] &&
+         awk -v t="$target" '$1 == t || $NF == t { found=1 } END { exit !found }' "$user_file" 2>/dev/null; then
         local tmp
-        tmp=$(awk -v t="$target" '$1 != t && $NF != t' "$PPM_SOURCES_FILE")
+        tmp=$(awk -v t="$target" '$1 != t && $NF != t' "$user_file")
         if [[ -n "$tmp" ]]; then
-          printf '%s\n' "$tmp" > "$PPM_SOURCES_FILE"
+          printf '%s\n' "$tmp" > "$user_file"
         else
-          : > "$PPM_SOURCES_FILE"
+          : > "$user_file"
         fi
         removed=true
       fi
@@ -153,29 +213,21 @@ src() {
       if $removed; then
         echo "Removed source: $target"
       else
-        echo "Source not found: $target"
+        echo "Source not found in user list: $target (system.list is ppm-managed)"
         return 1
       fi
       ;;
 
     list)
-      if [[ -f "$PPM_SOURCES_FILE" ]]; then
-        while IFS= read -r line || [[ -n "$line" ]]; do
-          [[ -z "$line" ]] && continue
-          local alias="${line##* }"
-          local repo_dir="$PPM_DATA_HOME/$alias"
-          local status="missing"
-          if [[ -d "$repo_dir/.git" ]]; then
-            if [[ -z "$(git -C "$repo_dir" status --porcelain 2>/dev/null)" ]]; then
-              status="clean"
-            else
-              status="dirty"
-            fi
-          fi
-          printf "%s  %s\n" "$line" "$status"
-        done < "$PPM_SOURCES_FILE"
-      else
+      local user_file
+      user_file=$(_user_sources_read)
+      if [[ -z "$user_file" && ! -f "$PPM_SYSTEM_SOURCES" ]]; then
         echo "No sources configured"
+      else
+        echo "# user ($(basename "${user_file:-$PPM_USER_SOURCES}"))"
+        _src_list_file "$user_file"
+        echo "# system ($(basename "$PPM_SYSTEM_SOURCES"))"
+        _src_list_file "$PPM_SYSTEM_SOURCES"
       fi
       ;;
 
@@ -220,9 +272,9 @@ package() {
   cp -a /tmp/user-ppm/packages "$repo_dir/"
   rm -rf /tmp/user-ppm
 
-  # Copy user's current ppm config
+  # Copy user's current ppm config (the user source list, not the ppm-managed system.list)
   mkdir -p "$repo_dir/packages/ppm/home/.config/ppm"
-  cp "$PPM_CONFIG_HOME/ppm.conf" "$PPM_CONFIG_HOME/sources.list" "$repo_dir/packages/ppm/home/.config/ppm/" 2>/dev/null || true
+  cp "$PPM_CONFIG_HOME/ppm.conf" "$(_user_sources_read)" "$repo_dir/packages/ppm/home/.config/ppm/" 2>/dev/null || true
 
   # Commit the initial packages
   git -C "$repo_dir" add packages
@@ -234,7 +286,7 @@ package() {
   echo "Package source '$repo_name' ready. Don't forget to push the updates"
 }
 
-# Iterate over repos listed in $PPM_SOURCES_FILE and clone them to $PPM_DATA_HOME
+# Iterate over repos from the merged source lists and clone them to $PPM_DATA_HOME
 update() {
   local filter="${1:-}"
   local all_updated=true

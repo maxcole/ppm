@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
-# File claiming — take ownership of individual files from other packages
+# File ownership — take individual files out of ppm's management
 #
 # `ppm file claim` copies a stowed file into your own repo/package and stows it from there.
 # `ppm file reset` removes the copy and restores the original package's link.
+# `ppm file protect` turns a file into a plain local copy that ppm's stow will never touch
+#   again (no repo needed; machine-specific). `ppm file unprotect` hands it back to ppm.
 # Claims are recorded in $PPM_INSTALLED_DIR/claims.yml:
 #   .config/git/ignore:
 #     claimant: user/git
 #     owner: pde/git       # empty if the file was not managed by ppm
+# Protected paths (relative to $HOME) are recorded in $PPM_INSTALLED_DIR/protected.yml as a
+# plain list; the installer seeds them into stow's ignore list so they are left alone.
 
 PPM_CLAIMS_FILE="$PPM_INSTALLED_DIR/claims.yml"
+PPM_PROTECTED_FILE="$PPM_INSTALLED_DIR/protected.yml"
 
 _file_usage() {
-  echo "Usage: ppm file <claim|reset> <file...>"
+  echo "Usage: ppm file <claim|reset|protect|unprotect> <file...>"
   echo "  claim <file...> [--repo REPO] [--package NAME]  Move files into REPO/NAME and stow them"
   echo "                                                  (default: \$PPM_DEFAULT_REPO/<owning package>)"
   echo "  reset <file...>                                 Remove claimed files and restore the original links"
+  echo "  protect <file...>                               Detach files from ppm; keep a local copy stow won't touch"
+  echo "  unprotect <file...>                             Let ppm manage the files again"
 }
 
 # Entry point for `ppm file` (dispatched from main)
@@ -55,6 +62,28 @@ file_command() {
           _file_claim "$f" "$repo" "$package" || status=1
         else
           _file_reset "$f" || status=1
+        fi
+      done
+      PPM_CURRENT_PACKAGE=""
+      flush_user_messages
+      return $status
+      ;;
+    protect|unprotect)
+      if [[ ${#files[@]} -eq 0 ]]; then
+        _file_usage
+        exit 1
+      fi
+      if [[ -n "$repo$package" ]]; then
+        echo "Error: $subcommand does not accept --repo or --package"
+        exit 1
+      fi
+
+      local f status=0
+      for f in "${files[@]}"; do
+        if [[ "$subcommand" == "protect" ]]; then
+          _file_protect "$f" || status=1
+        else
+          _file_unprotect "$f" || status=1
         fi
       done
       PPM_CURRENT_PACKAGE=""
@@ -107,7 +136,7 @@ _file_claim() {
 
   # Warn when the claimant would not take precedence over the owner
   if [[ -n "$owner" && $(_repo_index "$target_repo") -gt $(_repo_index "$owner_repo") ]]; then
-    user_message "Warning: $target_repo has lower priority than $owner_repo in sources.list"
+    user_message "Warning: $target_repo has lower priority than $owner_repo in the source lists"
   fi
 
   if [[ ! -d "$pkg_dir" ]]; then
@@ -223,6 +252,63 @@ _file_reset() {
   user_message "Reset ~/$rel. Remember to commit the changes in $PPM_DATA_HOME/$c_repo"
 }
 
+# Protect a single file: detach it from ppm and keep a plain local copy stow won't touch
+# Usage: _file_protect <path>
+_file_protect() {
+  local arg="$1" rel
+  rel=$(_file_rel_path "$arg") || { ppm_fail "Not a path under \$HOME: $arg"; return 1; }
+  local src="$HOME/$rel"
+  PPM_CURRENT_PACKAGE=""
+
+  [[ -e "$src" || -L "$src" ]] || { ppm_fail "File not found: ~/$rel"; return 1; }
+  [[ -d "$src" ]] && { ppm_fail "Directories are not supported: ~/$rel"; return 1; }
+
+  if _protected_has "$rel"; then
+    echo "Already protected: ~/$rel"
+    return 0
+  fi
+
+  # Find the current ppm owner (claim first, then a plain package link) before we detach
+  local owner claimant
+  claimant=$(_claim_get "$rel" claimant)
+  owner=$(_file_owner "$rel")
+
+  # Turn a package symlink into a real local file so the current content is preserved
+  if [[ -L "$src" ]]; then
+    local tmp
+    tmp=$(mktemp) || { ppm_fail "Cannot create temp file for ~/$rel"; return 1; }
+    if ! cp -pL "$src" "$tmp"; then
+      rm -f "$tmp"; ppm_fail "Failed to read ~/$rel"; return 1
+    fi
+    rm -f "$src" && mv "$tmp" "$src" || { ppm_fail "Failed to detach ~/$rel"; return 1; }
+  fi
+
+  _protected_add "$rel"
+
+  # Drop it from any tracker/claim so remove/reinstall won't try to manage it
+  if [[ -n "$claimant" ]]; then
+    _tracker_remove_file "${claimant%%/*}" "${claimant#*/}" "$rel"
+    _claim_del "$rel"
+  elif [[ -n "$owner" ]]; then
+    _tracker_remove_file "${owner%%/*}" "${owner#*/}" "$rel"
+  fi
+
+  echo "Protected ~/$rel${owner:+ (was $owner)}${claimant:+ (was $claimant)}"
+}
+
+# Unprotect a single file: let ppm manage it again on the next install
+# Usage: _file_unprotect <path>
+_file_unprotect() {
+  local arg="$1" rel
+  rel=$(_file_rel_path "$arg") || { ppm_fail "Not a path under \$HOME: $arg"; return 1; }
+  PPM_CURRENT_PACKAGE=""
+
+  _protected_has "$rel" || { ppm_fail "~/$rel is not protected"; return 1; }
+  _protected_del "$rel"
+  echo "Unprotected ~/$rel"
+  user_message "~/$rel is still a local file. Run 'ppm install -f <package>' to let a package re-link it."
+}
+
 # --- Helpers ---
 
 # Normalize a path to be relative to $HOME (without resolving the file itself)
@@ -271,4 +357,32 @@ _claim_set() {
 _claim_del() {
   [[ -f "$PPM_CLAIMS_FILE" ]] || return 0
   K="$1" yq -i 'del(.[strenv(K)])' "$PPM_CLAIMS_FILE"
+}
+
+# --- Protected files ($PPM_PROTECTED_FILE: a plain list of $HOME-relative paths) ---
+
+# Print each protected path, one per line
+_protected_list() {
+  [[ -s "$PPM_PROTECTED_FILE" ]] || return 0
+  yq -r '.[]' "$PPM_PROTECTED_FILE" 2>/dev/null
+}
+
+# True when a path is protected
+_protected_has() {
+  local rel="$1" p
+  while IFS= read -r p; do
+    [[ "$p" == "$rel" ]] && return 0
+  done < <(_protected_list)
+  return 1
+}
+
+_protected_add() {
+  mkdir -p "$(dirname "$PPM_PROTECTED_FILE")"
+  [[ -s "$PPM_PROTECTED_FILE" ]] || echo '[]' > "$PPM_PROTECTED_FILE"
+  F="$1" yq -i '. = ((. // []) + [strenv(F)] | unique)' "$PPM_PROTECTED_FILE"
+}
+
+_protected_del() {
+  [[ -f "$PPM_PROTECTED_FILE" ]] || return 0
+  F="$1" yq -i 'del(.[] | select(. == strenv(F)))' "$PPM_PROTECTED_FILE"
 }

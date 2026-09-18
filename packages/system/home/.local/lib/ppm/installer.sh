@@ -67,7 +67,7 @@ install() {
 
     # Layers of the same package name share one stow ignore list
     if [[ "$package_name" != "$prev_name" ]]; then
-      PPM_IGNORE_ARGS=()
+      _reset_ignore_args
       prev_name="$package_name"
     fi
 
@@ -392,6 +392,17 @@ unstow_package() {
     [[ -d "$pkg_dir/$subdir" ]] && stow -D -d "$pkg_dir" -t "$HOME" "$subdir"
   done
   return 0
+}
+
+# Reset PPM_IGNORE_ARGS to the user-protected baseline (files `ppm file protect` detached).
+# stow_subdir and force_remove_conflicts both honor PPM_IGNORE_ARGS, so seeding it here keeps
+# protected files untouched on every install, including under -f.
+_reset_ignore_args() {
+  PPM_IGNORE_ARGS=()
+  local rel
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] && PPM_IGNORE_ARGS+=("$(_stow_ignore_arg "$rel")")
+  done < <(_protected_list)
 }
 
 # Build the stow --ignore argument for a file path relative to the stow dir

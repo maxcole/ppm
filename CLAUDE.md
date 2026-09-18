@@ -17,10 +17,12 @@ The PPM ecosystem is multiple git repos, all cloned under `~/.local/share/ppm/`:
 ```
 
 This repo (`ppm/`) contains:
-- `ppm` — the main script (symlinked to `~/.local/bin/ppm`)
-- `lib/` — internal library files sourced by ppm
-- `packages/` — meta-packages (dev tooling, ppm's own config)
-- `install.sh` — bootstrap installer for new machines
+- `packages/system/` — ppm *is* a package: the `ppm` script, its libraries and
+  `ppm.zsh` live under `packages/system/home/` and are stowed onto the machine like
+  any other package (`~/.local/bin/ppm`, `~/.local/lib/ppm/*.sh`, `~/.config/zsh/ppm.zsh`)
+- `packages/` — meta-packages (`system` = ppm itself, `dev` = dev/test tooling)
+- `install.sh` — bootstrap installer for new machines (clones this repo, installs the
+  irreducible prereqs — Homebrew, stow, yq, mise — then stows `ppm/system`)
 - `chorus/units/` — development plans (Chorus methodology)
 
 ## Package Structure
@@ -97,16 +99,23 @@ Available functions packages can call from their hooks:
 
 ## Key Files
 
-- `~/.config/ppm/sources.list` — repo URLs + aliases (two columns)
+- `~/.config/ppm/system.list` — default repo list, shipped/stowed by `ppm/system` (ppm-managed; don't edit)
+- `~/.config/ppm/user.list` — your repo list (edited by `ppm src`); higher priority than system.list. `sources.list` is the pre-split legacy name, still read as the user list and migrated to `user.list` on the first `ppm src` write
 - `~/.config/ppm/ppm.conf` — configuration variables
 - `~/.config/ppm/ppm.local.conf` — machine-local config (not committed)
 - `~/.local/share/ppm/.installed/<repo>/<pkg>.yml` — per-package install tracker (version, timestamp, stowed files)
-- `~/.local/lib/ppm/*.sh` — package-contributed library extensions. They can add helpers for hooks (e.g. `pde/ruby`'s `install_gem`) or commands: a function named `foo` becomes `ppm foo` (e.g. `ppm/dev`'s `ppm user`)
+- `~/.local/share/ppm/.installed/protected.yml` — files `ppm file protect` detached from ppm; seeded into stow's ignore list so they are never re-linked
+- `~/.local/bin/ppm` — the ppm script (stowed from `ppm/system`)
+- `~/.local/lib/ppm/*.sh` — ppm's own libraries (stowed from `ppm/system`) plus package-contributed library extensions. Extensions add helpers for hooks (e.g. `pde/ruby`'s `install_gem`) or commands: a function named `foo` becomes `ppm foo` (e.g. `ppm/dev`'s `ppm user`)
 - `~/.cache/ppm/` — cache files (brew/ppm update timestamps)
 
 ## Source Precedence
 
-Repos in `sources.list` are processed in order. When a package exists in multiple repos, each copy is a layer:
+Repos come from two lists, read in priority order: `user.list` (yours) first, then
+`system.list` (shipped defaults). An alias declared in both is taken from `user.list`.
+`ppm src add/remove/ssh` only ever edit `user.list`; `ppm src list` shows both. Within
+the merged list, order is priority order. When a package exists in multiple repos, each
+copy is a layer:
 
 - `ppm install git` installs every `git` package in source order (e.g. `user/git`, then `pde/git`). The layers share one stow ignore list (`PPM_IGNORE_ARGS`), so files stowed by a higher-priority layer are skipped by lower ones. This lets personal repos override individual files.
 - `ppm install pde/git` installs only that layer. It hits a stow conflict on files owned by a higher layer; this is intended.
@@ -115,12 +124,17 @@ Repos in `sources.list` are processed in order. When a package exists in multipl
 
 Homebrew supports one owner per installation (`/opt/homebrew` on Apple silicon macOS, `/home/linuxbrew/.linuxbrew` on Linux; Intel Macs are not supported). The user who installed it owns it and is the only one who installs, updates or upgrades formulas. Other users on the machine run the tools but never write to the prefix. ppm puts brew on PATH itself (`brew_env`), skips `brew update` for non-owners, and uses `brew_require_owner` to tell a non-owner which command the owner has to run.
 
-## Claiming Files
+## Claiming and Protecting Files
+
+Three levels of ownership for an individual file: ppm owns it (default), *you* own it in
+*your repo* (`claim`), or *you* own it locally with ppm detached (`protect`).
 
 - `ppm file claim <file...> [--repo REPO] [--package NAME]` copies files into `REPO/NAME/home/` and stows them from there. The default repo is `$PPM_DEFAULT_REPO` (default `user`, settable in `ppm.conf`). The default package has the same name as the owning package. A new package with a different name gets `depends: [<owner>]`.
 - `ppm file reset <file...>` deletes the claimed copy, restores the owner's link, and removes the claimant package if it becomes empty.
-- Claims are recorded in `~/.local/share/ppm/.installed/claims.yml` (file → claimant, owner). The per-package trackers are updated to match.
-- Neither command touches git. Commit the changes in the repo yourself.
+- `ppm file protect <file...>` turns a package-managed symlink into a plain local copy (preserving its content) and records it in `protected.yml`. ppm then never re-links or force-removes it — including under `-f` — so you can customize it without a repo. The file is also dropped from its package's tracker.
+- `ppm file unprotect <file...>` removes it from `protected.yml`; the next `ppm install -f <package>` re-links it.
+- Claims are recorded in `~/.local/share/ppm/.installed/claims.yml` (file → claimant, owner); protections in `~/.local/share/ppm/.installed/protected.yml` (a plain list of `$HOME`-relative paths). The per-package trackers are updated to match.
+- None of these touch git. Commit the changes in the repo yourself.
 
 ## Dependencies
 
@@ -138,10 +152,14 @@ Plans are in `chorus/units/`. Follow the Chorus methodology:
 
 ### Lib Structure
 
-`ppm` holds only bootstrap: paths, library sourcing, `*.conf` loading, flag parsing and dispatch. Each command lives in the lib file for its area, next to its helpers:
+ppm is the `ppm/system` package: the `ppm` script and its libraries live under
+`packages/system/home/` and are stowed to `~/.local/bin/ppm` and `~/.local/lib/ppm/`.
+The `ppm` script holds only bootstrap: paths, library sourcing, `*.conf` loading, flag
+parsing and dispatch. Each command lives in the lib file for its area, next to its
+helpers:
 
 ```
-lib/
+packages/system/home/.local/lib/ppm/
   core.sh        # API for package hooks: os(), arch(), add_to_file(), remove_from_file(),
                  # debug(), user_message(), ppm_fail()
   platform.sh    # platform() (macos/debian), brew_prefix(), brew_env(), brew_owner(), brew_is_owner(),
@@ -150,15 +168,17 @@ lib/
   packages.sh    # list, show, path, deps; collect_packages(), find_package_dirs(), resolve_deps() (layered topo sort),
                  # package.yml reads (meta_depends, meta_version), install trackers (meta_mark_installed, ...)
   installer.sh   # install, remove; install_single_package(), remover(), stow_package(), PPM_IGNORE_ARGS
-  file.sh        # file claim|reset (file_command), claims.yml
+  file.sh        # file claim|reset|protect|unprotect (file_command), claims.yml, protected.yml
   completion.sh  # completion
 ```
 
 Flags (`force`, `config`, `reinstall`, `skip_deps`) are locals of `main()` that commands read through dynamic scoping.
 
-Sourcing order in `ppm`:
-1. `$PPM_REPO_DIR/lib/*.sh` (ppm's own libraries)
-2. `$PPM_LIB_DIR/*.sh` (package-contributed extensions from `~/.local/lib/ppm/`)
+Library sourcing in `ppm`: every `*.sh` in `$PPM_LIB_DIR` (`~/.local/lib/ppm/`) is
+sourced. That directory holds both ppm's own core libraries (stowed from `ppm/system`)
+and package-contributed extensions (e.g. `ppm/dev`'s `container.sh`). During a fresh
+install `install.sh` sources the core libs directly from the clone and stows `ppm/system`
+so they are present before `ppm` first runs.
 
 ### Testing
 

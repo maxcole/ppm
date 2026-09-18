@@ -3,23 +3,33 @@
 # PPM Install Script
 #
 # WHAT THIS SCRIPT DOES:
-#   1. Installs Homebrew's prerequisites (Debian: apt packages; macOS: Xcode Command Line Tools),
-#      asking for sudo only when something is missing
-#   2. Installs Homebrew if the machine has none (this user becomes its owner), or uses the existing
-#      installation without writing to it when another user owns it
-#   3. Installs ppm's base tools from Homebrew: stow, yq, mise (and bash on macOS)
-#   4. Adds GitHub's published SSH host keys to ~/.ssh/known_hosts
-#   5. Clones ppm to ~/.local/share/ppm/ppm and links it to ~/.local/bin/ppm
-#   6. Seeds ~/.config/ppm/ppm.conf and sources.list as regular files from the user-ppm template
-#   7. With --repo: adds your repo and installs its ppm package, which replaces the seeded
-#      config files with links into your repo
-#   8. Runs 'ppm update' and installs packages (default: zsh)
+#   1. Clones ppm to ~/.local/share/ppm/ppm and sources its libraries, so this
+#      bootstrap reuses ppm's own os()/platform()/brew_* helpers instead of copies
+#   2. Installs Homebrew's prerequisites (Debian: apt packages; macOS: Xcode Command
+#      Line Tools), asking for sudo only when something is missing
+#   3. Installs Homebrew if the machine has none (this user becomes its owner), or uses
+#      the existing installation without writing to it when another user owns it
+#   4. Installs ppm's base tools from Homebrew: stow, yq, mise (and bash on macOS) —
+#      ppm cannot parse a package.yml (yq) or stow anything until these exist, so they
+#      stay an imperative bootstrap and never become tracked ppm dependencies
+#   5. Stows the ppm/system package (this ppm script, its libraries and ppm.zsh) into
+#      $HOME, which is what puts ~/.local/bin/ppm on PATH
+#   6. Adds GitHub's published SSH host keys to ~/.ssh/known_hosts
+#   7. Seeds ~/.config/ppm/ppm.conf (from the user-ppm template) and an empty user.list.
+#      The default repo list (system.list) is stowed from ppm/system in step 5.
+#   8. With --repo: adds your repo and installs its ppm package, which replaces the
+#      seeded config files with links into your repo
+#   9. Runs 'ppm update', installs any requested packages, then 'ppm install ppm/system'
+#      to record ppm itself in the install tracker (no package is installed by default)
 #
 # FILES CREATED:
-#   ~/.local/share/ppm/ppm/          cloned ppm repo
-#   ~/.local/bin/ppm                 link to the ppm script
+#   ~/.local/share/ppm/ppm/          cloned ppm repo (ppm/system package lives inside it)
+#   ~/.local/bin/ppm                 link to the ppm script (stowed from ppm/system)
+#   ~/.local/lib/ppm/*.sh            ppm's libraries (stowed from ppm/system)
+#   ~/.config/zsh/ppm.zsh            ppm's zsh wrapper (stowed from ppm/system)
+#   ~/.config/ppm/system.list        default repo list (stowed from ppm/system)
+#   ~/.config/ppm/user.list          your repos (a link into your repo with --repo)
 #   ~/.config/ppm/ppm.conf           seeded from the template (a link into your repo with --repo)
-#   ~/.config/ppm/sources.list       seeded from the template (a link into your repo with --repo)
 #   ~/.config/ppm/ppm.local.conf     machine-local settings
 #   ~/.local/share/ppm/<repo>/       cloned package repos
 #
@@ -36,9 +46,9 @@
 #
 # OPTIONS:
 #   --repo <url>    add your package repo first (or set PPM_INSTALL_REPO)
-#   --script-only   only clone ppm and seed config
+#   --script-only   only clone ppm, stow the system package and seed config (needs stow)
 #   --skip-deps     skip prerequisites and Homebrew setup (you manage them)
-#   <package...>    packages to install (or set PPM_INSTALL_PACKAGES; default: zsh)
+#   <package...>    packages to install (or set PPM_INSTALL_PACKAGES; none by default)
 #
 # Everything runs from main() on the last line, so a partially downloaded script does nothing.
 #
@@ -61,11 +71,10 @@ PPM_DATA_HOME=$XDG_DATA_HOME/ppm
 
 PPM_REPO_URL=https://github.com/maxcole/ppm.git
 PPM_REPO_DIR=$PPM_DATA_HOME/ppm
+PPM_SYSTEM_DIR=$PPM_REPO_DIR/packages/system
 PPM_USER_URL=https://raw.githubusercontent.com/maxcole/user-ppm/refs/heads/main
-PPM_SOURCES_FILE=$PPM_CONFIG_HOME/sources.list
+PPM_USER_SOURCES=$PPM_CONFIG_HOME/user.list
 
-OS_RELEASE=${PPM_OS_RELEASE:-/etc/os-release}
-BREW_PREFIXES="/opt/homebrew /home/linuxbrew/.linuxbrew"
 DEBIAN_PREREQS="build-essential procps curl file git"
 
 # From https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
@@ -80,63 +89,29 @@ warn() { echo -e "${YELLOW}Warning:${NC} $*" >&2; }
 die()  { echo -e "${RED}Error:${NC} $*" >&2; exit 1; }
 
 
-# macos or linux (value of PPM_GROUP_ID, the per-OS stow subdirectory)
-os() {
-  if [[ "$OSTYPE" == darwin* ]]; then
-    echo "macos"
-  elif [[ "$OSTYPE" == linux-gnu* ]]; then
-    echo "linux"
-  else
-    echo "unsupported"
+# Clone the ppm repo (which contains the ppm/system package). No linking here — the
+# ppm script lands on PATH when ppm/system is stowed (stow_system).
+clone_ppm() {
+  command -v git >/dev/null 2>&1 || die "git is required"
+  mkdir -p "$BIN_DIR" "$PPM_DATA_HOME" "$PPM_CONFIG_HOME"
+  if [[ ! -d "$PPM_REPO_DIR" ]]; then
+    git clone "$PPM_REPO_URL" "$PPM_REPO_DIR"
   fi
 }
 
 
-# macos, or the supported distro family from os-release (ID first, then ID_LIKE)
-# Keep in sync with lib/platform.sh
-platform() {
-  if [[ "$OSTYPE" == darwin* ]]; then
-    echo "macos"
-    return
-  fi
-
-  local candidates="" candidate
-  [[ -r "$OS_RELEASE" ]] && candidates=$(. "$OS_RELEASE" && echo "${ID:-} ${ID_LIKE:-}")
-  for candidate in $candidates; do
-    case "$candidate" in
-      debian) echo "debian"; return ;;
-    esac
-  done
-  echo "unsupported"
+# Source ppm's own libraries from the clone so this bootstrap reuses os(), platform(),
+# brew_prefix(), brew_owner(), brew_env(), system_pkg_*(), brew_missing(), brew_is_owner()
+# instead of keeping copies here.
+source_libs() {
+  local lib_dir="$PPM_SYSTEM_DIR/home/.local/lib/ppm"
+  [[ -f "$lib_dir/core.sh" ]] || die "ppm libraries not found at $lib_dir (clone failed?)"
+  source "$lib_dir/core.sh"
+  source "$lib_dir/platform.sh"
 }
 
 
-# First Homebrew prefix that exists; prints nothing if Homebrew is not installed
-# Keep in sync with lib/platform.sh
-brew_prefix() {
-  local prefix
-  for prefix in $BREW_PREFIXES; do
-    if [[ -x "$prefix/bin/brew" ]]; then
-      echo "$prefix"
-      return 0
-    fi
-  done
-  return 0
-}
-
-
-# User that owns a Homebrew installation (the repository dir; on Apple silicon that is the prefix)
-brew_owner() {
-  local dir="$1/Homebrew"
-  [[ -d "$dir" ]] || dir="$1"
-  if [[ "$(os)" == "macos" ]]; then
-    stat -f %Su "$dir"
-  else
-    stat -c %U "$dir"
-  fi
-}
-
-
+# Homebrew base tools that ppm itself needs before it can run
 base_formulas() {
   if [[ "$(os)" == "macos" ]]; then
     echo "stow yq mise bash"
@@ -146,36 +121,15 @@ base_formulas() {
 }
 
 
-# Get sudo credentials once with a normal password prompt; exit with guidance if this user can't
-ensure_sudo() {
-  local reason="$1"
-  command -v sudo >/dev/null 2>&1 || die "sudo is not installed. Ask an admin to $reason, then re-run."
-  sudo -n true 2>/dev/null && return 0
-  info "sudo is needed to $reason"
-  sudo -v || die "This user cannot use sudo. Ask an admin to $reason, then re-run."
-}
-
-
-# Debian packages from the arguments that are not installed
-debian_missing() {
-  local pkg missing=""
-  for pkg in "$@"; do
-    [[ "$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null)" == "install ok installed" ]] || missing="$missing $pkg"
-  done
-  echo "${missing# }"
-}
-
-
 setup_prereqs() {
   case "$(platform)" in
     debian)
       local missing
-      missing=$(debian_missing $DEBIAN_PREREQS)
+      missing=$(system_pkg_missing $DEBIAN_PREREQS | tr '\n' ' ')
+      missing="${missing%% }"; missing="${missing## }"
       [[ -z "$missing" ]] && return 0
-      ensure_sudo "install $missing"
       info "Installing prerequisites: $missing"
-      sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq </dev/null
-      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y $missing </dev/null
+      system_pkg_install $missing || die "Failed to install prerequisites: $missing"
       ;;
     macos)
       # Without Homebrew, its installer installs the Command Line Tools itself
@@ -194,28 +148,26 @@ setup_brew() {
   prefix=$(brew_prefix)
 
   if [[ -z "$prefix" ]]; then
-    ensure_sudo "create the Homebrew prefix"
+    _system_sudo "create the Homebrew prefix" || die "sudo is required to install Homebrew"
     info "Installing Homebrew; $(id -un) will own it"
     NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/null
     prefix=$(brew_prefix)
-    [[ -n "$prefix" ]] || die "Homebrew was installed but none of these prefixes exist: $BREW_PREFIXES"
+    [[ -n "$prefix" ]] || die "Homebrew was installed but none of these prefixes exist: $PPM_BREW_PREFIXES"
   fi
 
-  eval "$("$prefix/bin/brew" shellenv bash)"
+  brew_env
 
-  local formula missing=""
-  for formula in $(base_formulas); do
-    [[ -e "$prefix/opt/$formula" ]] || missing="$missing $formula"
-  done
-  missing="${missing# }"
+  local missing
+  missing=$(brew_missing $(base_formulas) | tr '\n' ' ')
+  missing="${missing%% }"; missing="${missing## }"
   [[ -z "$missing" ]] && return 0
 
-  local owner
-  owner=$(brew_owner "$prefix")
-  if [[ "$owner" == "$(id -un)" ]]; then
+  if brew_is_owner; then
     info "Installing base tools: $missing"
     brew install $missing </dev/null
   else
+    local owner
+    owner=$(brew_owner)
     die "Homebrew at $prefix is owned by $owner and is missing: $missing
        Ask $owner to run: brew install $missing"
   fi
@@ -244,25 +196,30 @@ setup_known_hosts() {
 }
 
 
-install_ppm() {
-  command -v git >/dev/null 2>&1 || die "git is required"
-  mkdir -p "$BIN_DIR" "$PPM_DATA_HOME" "$PPM_CONFIG_HOME"
-  if [[ ! -d "$PPM_REPO_DIR" ]]; then
-    git clone "$PPM_REPO_URL" "$PPM_REPO_DIR"
-  fi
-  ln -sfn "$PPM_REPO_DIR/ppm" "$BIN_DIR/ppm"
+# Stow the ppm/system package into $HOME: this is what puts ~/.local/bin/ppm on PATH and
+# ~/.local/lib/ppm/*.sh in place, so `ppm` becomes runnable. Idempotent (stow re-links).
+# rm -f clears the pre-package links from older installs before the first stow.
+stow_system() {
+  command -v stow >/dev/null 2>&1 || die "stow is required to link ppm (install it or drop --skip-deps)"
+  rm -f "$BIN_DIR/ppm" "$XDG_CONFIG_HOME/zsh/ppm.zsh"
+  stow --no-folding -d "$PPM_SYSTEM_DIR" -t "$HOME" home
 }
 
 
-# Seed config as regular files; a repo's ppm package later replaces them with links (install_repo)
+# Seed config. system.list comes from stowing ppm/system; here we seed ppm.conf (from the
+# template) and an empty user.list the user can add repos to. A repo's ppm package can later
+# replace these with links (install_repo).
 install_ppm_configs() {
-  local pkg_path=packages/ppm/home/.config/ppm config_file
+  local pkg_path=packages/ppm/home/.config/ppm
 
-  for config_file in ppm.conf sources.list; do
-    if [[ ! -e "$PPM_CONFIG_HOME/$config_file" ]]; then
-      curl -fsSL "$PPM_USER_URL/$pkg_path/$config_file" -o "$PPM_CONFIG_HOME/$config_file"
-    fi
-  done
+  if [[ ! -e "$PPM_CONFIG_HOME/ppm.conf" ]]; then
+    curl -fsSL "$PPM_USER_URL/$pkg_path/ppm.conf" -o "$PPM_CONFIG_HOME/ppm.conf"
+  fi
+
+  if [[ ! -e "$PPM_USER_SOURCES" ]]; then
+    printf '# Your ppm sources (highest priority). Add with: ppm src add <git-url> [alias]\n' \
+      > "$PPM_USER_SOURCES"
+  fi
 
   if [[ ! -f "$PPM_CONFIG_HOME/ppm.local.conf" ]]; then
     echo "PPM_GROUP_ID=$(os)" > "$PPM_CONFIG_HOME/ppm.local.conf"
@@ -285,9 +242,9 @@ install_repo() {
   # -f replaces the seeded regular files with links into the repo
   ppm install -f "$repo_name/ppm"
 
-  repo_config="$PPM_DATA_HOME/$repo_name/packages/ppm/home/.config/ppm/sources.list"
-  if [[ -e "$repo_config" && ! -L "$PPM_SOURCES_FILE" ]]; then
-    warn "$PPM_SOURCES_FILE is not a link into $repo_name; edits there won't be saved in your repo"
+  repo_config="$PPM_DATA_HOME/$repo_name/packages/ppm/home/.config/ppm/user.list"
+  if [[ -e "$repo_config" && ! -L "$PPM_USER_SOURCES" ]]; then
+    warn "$PPM_USER_SOURCES is not a link into $repo_name; edits there won't be saved in your repo"
   fi
 }
 
@@ -297,8 +254,8 @@ install_packages() {
   for pkg in "$@"; do
     ppm install "$pkg"
   done
-  # stow ppm.zsh
-  ppm install ppm/ppm
+  # Record ppm itself in the tracker (and idempotently re-stow the system package)
+  ppm install ppm/system
 }
 
 
@@ -335,8 +292,12 @@ EOF
 
   [[ "$(id -u)" -ne 0 ]] || die "Run as your normal user, not root (Homebrew refuses to run as root)"
 
+  clone_ppm
+  source_libs
+
   if $script_only; then
-    install_ppm
+    brew_env   # put an existing Homebrew (hence stow) on PATH if there is one
+    stow_system
     install_ppm_configs
     exit 0
   fi
@@ -346,26 +307,25 @@ EOF
   if [[ ${#packages[@]} -eq 0 && -n "${PPM_INSTALL_PACKAGES:-}" ]]; then
     read -ra packages <<< "$PPM_INSTALL_PACKAGES"
   fi
-  [[ ${#packages[@]} -gt 0 ]] || packages=(zsh)
 
   if $skip_deps; then
-    local prefix
-    prefix=$(brew_prefix)
-    [[ -z "$prefix" ]] || eval "$("$prefix/bin/brew" shellenv bash)"
+    brew_env
   else
     setup_prereqs
     setup_brew
+    { command -v yq >/dev/null 2>&1 && command -v stow >/dev/null 2>&1; } ||
+      die "ppm needs yq and stow on PATH after setup; check the Homebrew install above"
   fi
 
-  setup_known_hosts
-  install_ppm
+  stow_system
   install_ppm_configs
+  setup_known_hosts
   [[ -z "$repo_url" ]] || install_repo
-  ppm update
-  install_packages "${packages[@]}"
+  ppm update || warn "ppm update skipped one or more repos (uncommitted changes)"
+  install_packages ${packages[@]+"${packages[@]}"}
 
   echo -e "\n${GREEN}Installation complete!${NC}"
-  echo -e "Open a new shell or run: ${CYAN}source ~/.zshrc${NC}"
+  # echo -e "Open a new shell or run: ${CYAN}source ~/.zshrc${NC}"
 }
 
 main "$@"

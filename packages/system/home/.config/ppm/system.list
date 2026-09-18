@@ -3,6 +3,6 @@
 # stop `ppm update`. Add your own repos with `ppm src add` (they go in user.list and
 # take priority). Format per line: <git-url> [alias]
 https://github.com/maxcole/ai-ppm  ai
-https://github.com/maxcole/pdt-ppm  pdt-ppm
-https://github.com/maxcole/pde-ppm  pde-ppm
+https://github.com/maxcole/pdt-ppm  pdt
+https://github.com/maxcole/pde-ppm  pde
 https://github.com/maxcole/ppm  ppm

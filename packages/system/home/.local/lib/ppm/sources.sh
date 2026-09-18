@@ -76,33 +76,57 @@ _github_ssh_url() {
   echo "git@github.com:${1#https://github.com/}"
 }
 
-# Switch GitHub HTTPS entries in the user source list, and the origin remotes of cloned repos,
-# to SSH. Only the user list is rewritten; system.list is ppm-managed and left alone.
+# Rewrite a GitHub HTTPS entry to SSH in a specific list file. Returns 0 if the file
+# contained the URL (and was rewritten), 1 otherwise.
+_ssh_rewrite_in_file() {
+  local file="$1" url="$2" tmp
+  [[ -f "$file" ]] || return 1
+  awk -v u="$url" '$1 == u { f=1 } END { exit !f }' "$file" || return 1
+  tmp=$(awk -v old="$url" -v new="$(_github_ssh_url "$url")" \
+    '$1 == old { sub(/^[^[:space:]]+/, new) } { print }' "$file")
+  printf '%s\n' "$tmp" > "$file"
+}
+
+# Switch GitHub HTTPS source entries and the origin remotes of cloned repos to SSH.
+# Writable lists: user.list always, and system.list only when you have protected it
+# (`ppm file protect`); an unprotected https entry in system.list is reported, not changed.
 # Usage: _src_ssh [alias]
 _src_ssh() {
   local filter="${1:-}"
   local user_file
   user_file=$(_user_sources_file)
+
+  # Lists src may write to, in priority order
+  local writable=("$user_file") sys_rel="${PPM_SYSTEM_SOURCES#$HOME/}"
+  _protected_has "$sys_rel" && writable+=("$PPM_SYSTEM_SOURCES")
+
   collect_repos
 
-  local i name url repo_dir remote changed found=false
+  local i name url repo_dir remote changed noted found=false f
   for i in "${!REPO_NAMES[@]}"; do
     name="${REPO_NAMES[$i]}"
     [[ -z "$filter" || "$name" == "$filter" ]] || continue
     found=true
     changed=false
+    noted=false
     url="${REPO_URLS[$i]}"
     repo_dir="$PPM_DATA_HOME/$name"
 
-    # Rewrite the list entry only when it lives in the user list
-    if [[ "$url" == https://github.com/* ]] && [[ -f "$user_file" ]] &&
-       awk -v u="$url" '$1 == u { found=1 } END { exit !found }' "$user_file"; then
-      local tmp
-      tmp=$(awk -v old="$url" -v new="$(_github_ssh_url "$url")" \
-        '$1 == old { sub(/^[^[:space:]]+/, new) } { print }' "$user_file")
-      printf '%s\n' "$tmp" > "$user_file"
-      echo "$name: $(basename "$user_file") -> $(_github_ssh_url "$url")"
-      changed=true
+    if [[ "$url" == https://github.com/* ]]; then
+      # Rewrite the entry in the first writable list that contains it
+      for f in ${writable[@]+"${writable[@]}"}; do
+        if _ssh_rewrite_in_file "$f" "$url"; then
+          echo "$name: $(basename "$f") -> $(_github_ssh_url "$url")"
+          changed=true
+          break
+        fi
+      done
+      # https entry that only lives in an unprotected (ppm-managed) system.list
+      if ! $changed && [[ -f "$PPM_SYSTEM_SOURCES" ]] &&
+         awk -v u="$url" '$1 == u { f=1 } END { exit !f }' "$PPM_SYSTEM_SOURCES"; then
+        echo "$name: https in system.list (ppm-managed); run 'ppm file protect ~/.config/ppm/system.list' to edit it here"
+        noted=true
+      fi
     fi
 
     if remote=$(git -C "$repo_dir" remote get-url origin 2>/dev/null) && [[ "$remote" == https://github.com/* ]]; then
@@ -111,7 +135,7 @@ _src_ssh() {
       changed=true
     fi
 
-    $changed || echo "$name: already SSH"
+    { $changed || $noted; } || echo "$name: already SSH"
   done
 
   $found || { echo "Source not found: $filter"; return 1; }

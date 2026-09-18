@@ -33,7 +33,10 @@ container() {
     *)
       echo "Usage: ppm container <command> <distro> [...]"
       echo "  build <distro> [podman build args]            Build the standard image"
-      echo "  start <distro> [--from SNAPSHOT] [--sources a,b]  Start ppm-<distro> with host sources mounted at /src"
+      echo "  start <distro> [--from SNAPSHOT] [--sources a,b|none] [-- podman-run-args]"
+      echo "                                                Start ppm-<distro>; host sources mounted ro at /src"
+      echo "                                                (--sources none for a clean box; -- passes extra"
+      echo "                                                 podman run args, e.g. -- -p 8080:8080 -v ~/s:/s)"
       echo "  shell <distro> [owner|other]                  Login shell as a test user"
       echo "  install <distro> [owner|other] [--pushed] [installer args]"
       echo "                                                Run install.sh from the working tree (--pushed: from GitHub)"
@@ -103,11 +106,12 @@ _container_start() {
   shift 2>/dev/null || true
   _container_distro "$distro" || return 1
 
-  local from="" sources=""
+  local from="" sources="" extra=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --from) from="${2:?--from requires a snapshot name}"; shift ;;
-      --sources) sources="${2:?--sources requires a comma-separated list of aliases}"; shift ;;
+      --sources) sources="${2:?--sources requires a comma-separated list of aliases (or 'none')}"; shift ;;
+      --) shift; extra=("$@"); break ;;
       *) echo "Unknown option: $1"; return 1 ;;
     esac
     shift
@@ -128,30 +132,35 @@ _container_start() {
     _container_build "$distro"
   fi
 
-  # Mount host sources in sources.list order; the label records the order for install and reset
+  # Mount host sources in source-list order; the label records the order for install and reset.
+  # --sources none mounts nothing (a clean box for general use).
   collect_repos
   local mounts=() aliases="" i alias host_dir
-  for i in "${!REPO_NAMES[@]}"; do
-    alias="${REPO_NAMES[$i]}"
-    [[ -z "$sources" || ",$sources," == *",$alias,"* ]] || continue
-    if [[ ! -d "$PPM_DATA_HOME/$alias" ]]; then
-      echo "Skipping $alias: not cloned on this host"
-      continue
-    fi
-    host_dir=$(cd "$PPM_DATA_HOME/$alias" && pwd -P)
-    mounts+=(-v "$host_dir:/src/$alias:ro")
-    aliases="$aliases $alias"
-  done
+  if [[ "$sources" != "none" ]]; then
+    for i in "${!REPO_NAMES[@]}"; do
+      alias="${REPO_NAMES[$i]}"
+      [[ -z "$sources" || ",$sources," == *",$alias,"* ]] || continue
+      if [[ ! -d "$PPM_DATA_HOME/$alias" ]]; then
+        echo "Skipping $alias: not cloned on this host"
+        continue
+      fi
+      host_dir=$(cd "$PPM_DATA_HOME/$alias" && pwd -P)
+      mounts+=(-v "$host_dir:/src/$alias:ro")
+      aliases="$aliases $alias"
+    done
+  fi
   aliases="${aliases# }"
 
+  # ppm/dev's own commands (container install) need the ppm source mounted; warn but allow,
+  # so the box is usable for general experimentation too.
   if [[ " $aliases " != *" ppm "* ]]; then
-    echo "The ppm source must be mounted; it provides install.sh"
-    return 1
+    echo "Note: ppm source not mounted; 'ppm container install $distro' won't work here" >&2
   fi
 
   podman run -d --name "$name" --hostname "$distro" --label "ppm.sources=$aliases" \
-    ${mounts[@]+"${mounts[@]}"} "$image" >/dev/null
-  echo "Started $name from $image with sources: $aliases"
+    ${mounts[@]+"${mounts[@]}"} ${extra[@]+"${extra[@]}"} "$image" >/dev/null
+  echo "Started $name from $image with sources: ${aliases:-none}"
+  [[ ${#extra[@]} -gt 0 ]] && echo "  extra podman args: ${extra[*]}"
 }
 
 _container_shell() {

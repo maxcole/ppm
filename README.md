@@ -12,12 +12,17 @@ curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install
 wget -qO- https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
 ```
 
+### Fedora
+```bash
+curl -fsSL https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh | bash
+```
+
 Run it as your normal user, not root. Open a new shell when complete, then run `ppm list` to see available packages.
 
 ## What Gets Installed
 
 The install script:
-- Installs Homebrew's prerequisites (Debian: `build-essential procps curl file git`; macOS: Xcode Command Line Tools)
+- Installs Homebrew's prerequisites (Debian: `build-essential procps curl file git`; Fedora: `gcc gcc-c++ make procps-ng curl file git`; macOS: Xcode Command Line Tools)
 - Installs Homebrew if the machine doesn't have it, then `stow`, `yq` and `mise` from Homebrew (plus `bash` on macOS)
 - Adds GitHub's published SSH host keys to `~/.ssh/known_hosts`
 - Installs ppm to `~/.local/bin/ppm` and creates config files in `~/.config/ppm/`
@@ -203,6 +208,13 @@ chmod +x ./install.sh
 **Debian 13**
 ```bash
 wget -q https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh
+chmod +x ./install.sh
+./install.sh
+```
+
+**Fedora**
+```bash
+curl -fsSLO https://raw.githubusercontent.com/maxcole/ppm/refs/heads/main/install.sh
 chmod +x ./install.sh
 ./install.sh
 ```

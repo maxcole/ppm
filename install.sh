@@ -6,8 +6,8 @@
 #   1. Sources ppm's libraries, so this bootstrap reuses ppm's own os()/platform()/brew_*
 #      helpers instead of copies: from the checkout it runs from, an existing clone, or a
 #      download (curl ... | bash)
-#   2. Installs Homebrew's prerequisites (Debian: apt packages, including git; macOS: Xcode
-#      Command Line Tools), asking for sudo only when something is missing
+#   2. Installs Homebrew's prerequisites (Debian: apt, Fedora: dnf packages, including git;
+#      macOS: Xcode Command Line Tools), asking for sudo only when something is missing
 #   3. Installs Homebrew if the machine has none (this user becomes its owner), or uses
 #      the existing installation without writing to it when another user owns it
 #   4. Installs ppm's base tools from Homebrew: stow, yq, mise (and bash on macOS) —
@@ -46,7 +46,8 @@
 #   One password prompt, only to install missing prerequisites or to create the Homebrew prefix.
 #   A machine that is already set up needs no sudo. Passwordless sudo is not required.
 #
-# SUPPORTED PLATFORMS: macOS, Debian 13 (and derivatives that declare ID_LIKE=debian)
+# SUPPORTED PLATFORMS: macOS, Debian 13 (and derivatives that declare ID_LIKE=debian),
+#                      Fedora (and derivatives that declare ID_LIKE=fedora)
 #
 # OPTIONS:
 #   --repo <url>    your customization repo (see `ppm customize`), added as the "user" source
@@ -87,8 +88,6 @@ PPM_BOOTSTRAP_LIBS="core.sh platform.sh file.sh installer.sh"
 # This script's own path; empty when piped (curl ... | bash), a file when run from a checkout
 PPM_INSTALLER_PATH="${BASH_SOURCE[0]:-}"
 PPM_USER_SOURCES=$PPM_CONFIG_HOME/user.list
-
-DEBIAN_PREREQS="build-essential procps curl file git"
 
 # From https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
 # (verified against api.github.com/meta); written directly instead of trusting ssh-keyscan
@@ -163,21 +162,33 @@ base_formulas() {
 }
 
 
+# Homebrew's prerequisites per Linux distro family (docs.brew.sh/Homebrew-on-Linux#requirements):
+# a compiler toolchain, procps, curl, file and git. For Fedora these are individual packages (the
+# equivalents of Debian's build-essential) rather than the development-tools group, so each one
+# can be checked with rpm.
+linux_prereqs() {
+  case "$(platform)" in
+    debian) echo "build-essential procps curl file git" ;;
+    fedora) echo "gcc gcc-c++ make procps-ng curl file git" ;;
+  esac
+}
+
+
 setup_prereqs() {
   case "$(platform)" in
-    debian)
-      local missing
-      missing=$(system_pkg_missing $DEBIAN_PREREQS | tr '\n' ' ')
-      missing="${missing%% }"; missing="${missing## }"
-      [[ -z "$missing" ]] && return 0
-      info "Installing prerequisites: $missing"
-      system_pkg_install $missing || die "Failed to install prerequisites: $missing"
-      ;;
     macos)
       # Without Homebrew, its installer installs the Command Line Tools itself
       if [[ -n "$(brew_prefix)" ]] && ! xcode-select -p >/dev/null 2>&1; then
         die "Xcode Command Line Tools are missing. Run: xcode-select --install, then re-run."
       fi
+      ;;
+    *)
+      local missing
+      missing=$(system_pkg_missing $(linux_prereqs) | tr '\n' ' ')
+      missing="${missing%% }"; missing="${missing## }"
+      [[ -z "$missing" ]] && return 0
+      info "Installing prerequisites: $missing"
+      system_pkg_install $missing || die "Failed to install prerequisites: $missing"
       ;;
   esac
 }
@@ -343,7 +354,7 @@ EOF
     exit 0
   fi
 
-  [[ "$(platform)" != "unsupported" ]] || die "Unsupported platform. Supported: macOS, Debian 13"
+  [[ "$(platform)" != "unsupported" ]] || die "Unsupported platform. Supported: macOS, Debian 13, Fedora"
 
   if [[ ${#packages[@]} -eq 0 && -n "${PPM_INSTALL_PACKAGES:-}" ]]; then
     read -ra packages <<< "$PPM_INSTALL_PACKAGES"

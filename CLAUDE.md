@@ -53,13 +53,14 @@ depends:
 Software a package needs is declared, not installed from hooks:
 
 ```yaml
-platforms: [macos]          # optional: macos, linux, debian; omit = every platform
+platforms: [macos]          # optional: macos, linux, debian, fedora; omit = every platform
 
 brew: [tmux, bat]           # list: every platform
 cask: [claude-code]         # Homebrew casks install on Linux too; GUI apps need a map (below)
 
 system:                     # distro package manager
   debian: [nfs-kernel-server]
+  fedora: [nfs-utils]         # keys are platform() values: debian, fedora (or linux for any distro)
 
 # a map picks per platform: exact platform first, then "linux" on any distro
 brew:
@@ -171,7 +172,7 @@ helpers:
 packages/system/home/.local/lib/ppm/
   core.sh        # API for package hooks: os(), arch(), add_to_file(), remove_from_file(),
                  # debug(), user_message(), ppm_fail()
-  platform.sh    # platform() (macos/debian), brew_prefix(), brew_env(), brew_owner(), brew_is_owner(),
+  platform.sh    # platform() (macos/debian/fedora), system_pkg_*() (apt/dnf), brew_prefix(), brew_env(), brew_owner(), brew_is_owner(),
                  # brew_require_owner(), update_brew_if_needed()
   sources.sh     # src (add, remove, list, ssh, update), customize; collect_repos(), update_ppm_if_needed()
   packages.sh    # list, show, path, deps; collect_packages(), find_package_dirs(), resolve_deps() (layered topo sort),

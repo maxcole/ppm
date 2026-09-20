@@ -7,8 +7,9 @@
 # Apple silicon macOS and Linux; Intel Macs (/usr/local) are not supported
 PPM_BREW_PREFIXES="/opt/homebrew /home/linuxbrew/.linuxbrew"
 
-# macos, or the supported distro family from os-release (ID first, then ID_LIKE)
-# Keep in sync with install.sh
+# macos, or the supported distro family from os-release (ID first, then ID_LIKE):
+# debian (Debian and derivatives such as Ubuntu) or fedora (Fedora, and RHEL-family distros
+# that declare ID_LIKE=fedora). The value is also the key for per-platform maps in package.yml.
 platform() {
   if [[ "$OSTYPE" == darwin* ]]; then
     echo "macos"
@@ -19,14 +20,13 @@ platform() {
   [[ -r "$os_release" ]] && candidates=$(. "$os_release" && echo "${ID:-} ${ID_LIKE:-}")
   for candidate in $candidates; do
     case "$candidate" in
-      debian) echo "debian"; return ;;
+      debian|fedora) echo "$candidate"; return ;;
     esac
   done
   echo "unsupported"
 }
 
 # First Homebrew prefix that exists; prints nothing if Homebrew is not installed
-# Keep in sync with install.sh
 brew_prefix() {
   local prefix
   for prefix in $PPM_BREW_PREFIXES; do
@@ -113,6 +113,13 @@ system_pkg_missing() {
         [[ "$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null)" == "install ok installed" ]] || echo "$pkg"
       done
       ;;
+    fedora)
+      # --whatprovides also counts a package installed under another name that provides it
+      # (e.g. zlib-devel, provided by zlib-ng-compat-devel)
+      for pkg in "$@"; do
+        rpm -q --whatprovides "$pkg" >/dev/null 2>&1 || echo "$pkg"
+      done
+      ;;
     macos) ;;
     *) printf '%s\n' "$@" ;;
   esac
@@ -126,6 +133,10 @@ system_pkg_install() {
       _system_sudo "$what" || return 1
       sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq </dev/null &&
         sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" </dev/null
+      ;;
+    fedora)
+      _system_sudo "$what" || return 1
+      sudo dnf install -y "$@" </dev/null
       ;;
     *)
       ppm_fail "Installing system packages is not supported on $(platform): $what"

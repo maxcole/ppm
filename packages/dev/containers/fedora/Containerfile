@@ -7,8 +7,9 @@ RUN dnf install -y glibc-langpack-en ncurses-term shadow-utils sudo \
 
 ENV LANG=en_US.UTF-8
 
-# Host repos are mounted at /src and owned by another uid
-RUN printf '[safe]\n\tdirectory = *\n' > /etc/gitconfig
+# Host repos are mounted at /src and owned by another uid. Git over HTTP/2 stalls on large
+# fetches from the podman VM (Homebrew cloning itself), so use HTTP/1.1.
+RUN printf '[safe]\n\tdirectory = *\n[http]\n\tversion = HTTP/1.1\n' > /etc/gitconfig
 
 # owner: sudo with a password (so the prompt can be tested); other: no sudo
 RUN useradd -m -u 1000 -s /bin/bash -G wheel owner \

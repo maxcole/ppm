@@ -209,7 +209,7 @@ meta_version() {
   yq -r '.version // ""' "$meta" 2>/dev/null
 }
 
-# Platforms a package supports (macos, linux, debian, ...); nothing means every platform
+# Platforms a package supports (macos, linux, debian, fedora); nothing means every platform
 # Usage: meta_platforms <package_dir>
 meta_platforms() {
   local meta="$1/package.yml"

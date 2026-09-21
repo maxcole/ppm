@@ -1,32 +1,13 @@
-# ppm.zsh
+# ppm.zsh — zsh-specific ppm integration (ppm/system).
+# The `ppm cd` wrapper is portable and lives in .config/sh/ppm.sh.
+# zcomp and zsrc come from pde/zsh; ppm doesn't depend on that package.
 
-if ! command -v ppm >/dev/null 2>&1; then
-  return
-fi
+command -v ppm >/dev/null 2>&1 || return
 
-# zcomp comes from pde/zsh; ppm doesn't depend on that package
 (( $+functions[zcomp] )) && zcomp ppm
 
-# Wrapper to handle `ppm cd` since subshells can't change parent directory
-ppm() {
-  if [[ "${1:-}" == "cd" ]]; then
-    shift
-    local verbose_flag=""
-    [[ "${1:-}" == "-v" ]] && { verbose_flag="-v"; shift; }
-    if [[ $# -eq 0 ]]; then
-      cd "${XDG_DATA_HOME:-$HOME/.local/share}/ppm"
-    else
-      local pkg_path
-      pkg_path=$(command ppm path $verbose_flag "$@") || return $?
-      cd "$pkg_path"
-    fi
-  else
-    command ppm "$@"
-    local ret=$?
-    if [[ $ret -eq 0 && ( "$1" =~ ^(install|remove)$ || ( "$1" == src && "${2:-}" == update ) ) ]]; then
-      zsrc
-      compinit
-    fi
-    return $ret
-  fi
+# Called by the ppm() wrapper after a successful install/remove/src update
+_ppm_shell_reload() {
+  (( $+functions[zsrc] )) && zsrc
+  (( $+functions[compinit] )) && compinit
 }

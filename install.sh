@@ -15,8 +15,8 @@
 #      stay an imperative bootstrap and never become tracked ppm dependencies
 #   5. Clones ppm to ~/.local/share/ppm/ppm (git is available now) and stows its
 #      ppm/system package (the ppm script, its libraries, its default config — ppm.conf and
-#      system.list — and ppm.zsh) into $HOME, which is what puts ~/.local/bin/ppm on PATH.
-#      Files protected with `ppm file protect` are left alone.
+#      system.list — and ppm's shell integration for sh/zsh/bash) into $HOME, which is what
+#      puts ~/.local/bin/ppm on PATH. Files protected with `ppm file protect` are left alone.
 #   6. Adds GitHub's published SSH host keys to ~/.ssh/known_hosts
 #   7. Seeds an empty ~/.config/ppm/user.list (your repos) and ppm.local.conf (machine-local
 #      settings)
@@ -29,7 +29,8 @@
 #   ~/.local/share/ppm/ppm/          cloned ppm repo (ppm/system package lives inside it)
 #   ~/.local/bin/ppm                 link to the ppm script (stowed from ppm/system)
 #   ~/.local/lib/ppm/*.sh            ppm's libraries (stowed from ppm/system)
-#   ~/.config/zsh/ppm.zsh            ppm's zsh wrapper (stowed from ppm/system)
+#   ~/.config/{sh,zsh,bash}/ppm.*    ppm's shell integration (stowed from ppm/system)
+#   ~/.config/{sh,zsh,bash}/mise.*   mise activation and aliases (stowed from ppm/system)
 #   ~/.config/ppm/system.list        default repo list (stowed from ppm/system)
 #   ~/.config/ppm/user.list          your repos (a link into your repo with --repo)
 #   ~/.config/ppm/ppm.conf           default settings (stowed from ppm/system)
@@ -253,10 +254,26 @@ setup_known_hosts() {
 # ~/.local/lib/ppm/*.sh in place, so `ppm` becomes runnable. Idempotent (stow re-links).
 # Uses ppm's own stow_package, seeded with the files `ppm file protect` detached, so a re-run
 # leaves protected files alone exactly as `ppm install` does.
-# rm -f clears the pre-package links from older installs before the first stow.
 stow_system() {
   command -v stow >/dev/null 2>&1 || die "stow is required to link ppm (install it or drop --skip-deps)"
-  rm -f "$BIN_DIR/ppm" "$XDG_CONFIG_HOME/zsh/ppm.zsh"
+  # Clear the stale links among the paths ppm/system ships, derived from the package rather than
+  # hardcoded so the list follows whatever it ships. Two kinds are cleared, both of which would
+  # otherwise make stow abort the whole run:
+  #   - a dangling link, left when a file moved out of ppm/system, or out of a package that is gone
+  #     (mise.zsh used to come from pde/mise)
+  #   - a link already pointing into ppm/system, i.e. one of ours from an earlier run
+  # A live link into any *other* package is left alone: it belongs to a higher-priority layer
+  # (user/system's ppm.conf is the documented case), and stow should report that as a real conflict
+  # rather than have the bootstrap silently downgrade it. Plain files are never touched, which is
+  # how `ppm file protect` and the user's own files survive.
+  local rel target
+  while IFS= read -r rel; do
+    target="$HOME/$rel"
+    [[ -L "$target" ]] || continue
+    if [[ ! -e "$target" ]] || [[ "$(readlink -f "$target" 2>/dev/null)" == "$PPM_SYSTEM_DIR"/* ]]; then
+      rm -f "$target"
+    fi
+  done < <(package_links "$PPM_SYSTEM_DIR/home")
   local force=false   # read by stow_package; the bootstrap never force-removes
   _reset_ignore_args
   stow_package "$PPM_SYSTEM_DIR"

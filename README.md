@@ -49,7 +49,9 @@ ppm src ssh [REPO]         # Switch GitHub HTTPS sources and remotes to SSH
 ppm src update             # Update (git clone/pull) package repositories
 ```
 
-After installing a package, run `zsrc` to reload zsh configuration.
+The `ppm` shell wrapper reloads your shell config itself after a successful `install`,
+`remove` or `src update`, so a new package's aliases and completions are there right away.
+To reload by hand: `zsrc` in zsh, `. ~/.bashrc` in bash.
 
 ## Default Sources
 

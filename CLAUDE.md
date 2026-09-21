@@ -16,9 +16,10 @@ The PPM ecosystem is multiple git repos, all cloned under `~/.local/share/ppm/`:
 ```
 
 This repo (`ppm/`) contains:
-- `packages/system/` — ppm *is* a package: the `ppm` script, its libraries and
-  `ppm.zsh` live under `packages/system/home/` and are stowed onto the machine like
-  any other package (`~/.local/bin/ppm`, `~/.local/lib/ppm/*.sh`, `~/.config/zsh/ppm.zsh`)
+- `packages/system/` — ppm *is* a package: the `ppm` script, its libraries, its default
+  config and its shell integration live under `packages/system/home/` and are stowed onto
+  the machine like any other package (`~/.local/bin/ppm`, `~/.local/lib/ppm/*.sh`,
+  `~/.config/{sh,zsh,bash}/{ppm,mise}.*`)
 - `packages/` — meta-packages (`system` = ppm itself, `dev` = dev/test tooling)
 - `install.sh` — bootstrap installer for new machines (clones this repo, installs the
   irreducible prereqs — Homebrew, stow, yq, mise — then stows `ppm/system`)
@@ -41,8 +42,8 @@ packages/<n>/
 version: 0.1.0
 author: rjayroach
 depends:
-  - mise
   - ruby
+  - node
 ```
 
 - `version` — semver, patch auto-bumped by git hooks (future)
@@ -73,7 +74,7 @@ cask:
 
 - `ppm install` refuses packages whose `platforms` exclude this machine (`ppm install repo/` skips them), then installs what is missing in one batch per manager before any hook runs: system packages (one sudo prompt), brew formulas, casks (on macOS and Linux). Only the Homebrew owner installs brew/cask; other users get the command to ask for.
 - A `system` map with entries for other distros but not this one (and no `linux` key) is an error.
-- Mise tools: stow `home/.config/mise/conf.d/<tool>.toml`; after stowing, ppm runs `mise install` for the tools named in the resolved packages' toml files.
+- Mise tools: stow `home/.config/mise/conf.d/<tool>.toml`; after stowing, ppm runs `mise install` for the tools named in the resolved packages' toml files. mise itself is a **core ppm component** — `install.sh` brews it alongside stow and yq, and `ppm/system` ships its shell activation — so packages declare the *tools* they want and never `depends: [mise]`.
 - Trackers record the formulas/casks ppm installed (`installed_deps`). `ppm remove` uninstalls them when no other installed package recorded or declares them. System packages are never removed.
 - `-c` skips all of this, like hooks.
 
@@ -106,8 +107,60 @@ Available functions packages can call from their hooks:
 - `~/.local/share/ppm/.installed/<repo>/<pkg>.yml` — per-package install tracker (version, timestamp, stowed files)
 - `~/.local/share/ppm/.installed/protected.yml` — files `ppm file protect` detached from ppm; seeded into stow's ignore list so they are never re-linked
 - `~/.local/bin/ppm` — the ppm script (stowed from `ppm/system`)
+- `~/.config/sh/*.sh`, `~/.config/zsh/*.zsh`, `~/.config/bash/*.bash` — package-contributed shell snippets (see Shell Integration). `ppm.*` and `mise.*` come from `ppm/system`
 - `~/.local/lib/ppm/*.sh` — ppm's own libraries (stowed from `ppm/system`) plus package-contributed library extensions. Extensions add helpers for hooks (e.g. `pde/ruby`'s `install_gem`) or commands: a function named `foo` becomes `ppm foo` (e.g. `ppm/dev`'s `ppm user`)
 - `~/.cache/ppm/` — cache files: `brew_last_update`, and `updated/<alias>` — each repo's last successful clone/pull. `ppm install` auto-updates only the repos older than `PPM_UPDATE_CACHE_DURATION` (default 24h); a repo skipped for uncommitted changes stays stale on its own and is rechecked next time. Install prints one `Not updated (uncommitted changes): <repos>` line for them; `PPM_QUIET_SKIPPED_REPOS=true` in `ppm.conf` moves it to `--debug`
+
+## Shell Integration
+
+ppm supports multiple shells by convention, not by machinery: a package ships one file per
+shell it supports, and a file for a shell you don't use is simply never sourced. There are
+three tiers under `$XDG_CONFIG_HOME`, and a package ships only the ones it needs:
+
+| Path in the package | Sourced by | Holds |
+| --- | --- | --- |
+| `home/.config/sh/<name>.sh` | the bash **and** zsh rc | portable: aliases, exports, PATH, plain functions |
+| `home/.config/zsh/<name>.zsh` | the zsh rc | zsh-only: completions, `mise activate zsh`, `$+functions` |
+| `home/.config/bash/<name>.bash` | the bash rc | bash-only: `mise activate bash`, bash completions |
+| `home/.config/fish/conf.d/<name>.fish` | fish itself | fish autoloads `conf.d`, so no rc glue is needed |
+
+Rules:
+
+- **Portable first.** Anything that works in both shells goes in `sh/`. Only genuinely
+  shell-specific code gets a per-shell file. This is what stops every package from
+  triplicating the same aliases.
+- **Order is `sh/` then `<shell>/`.** A `sh/` file must not rely on a helper defined in a
+  `<shell>/` file at *source* time; calling one at *runtime* is fine. `sh/ppm.sh` does exactly
+  that: it defines the `ppm()` wrapper and calls `_ppm_shell_reload` (defined per shell) only
+  after a successful `install`/`remove`/`src update`.
+- **The rc file belongs to a shell package, never to `ppm/system`.** `pde/zsh` owns
+  `.zshrc`/`.zshenv` and its sourcing loop; `pde/bash` owns `.bashrc`/`.bash_profile`. With no
+  shell package installed nothing sources anything — `ppm` still works, but `ppm cd` and mise
+  activation are absent. A rc that adds the `sh/` tier must also add it to any reload helper it
+  ships (`pde/zsh` updates both `.zshrc` and `zsrc`).
+- **The rc sets the base environment before it sources any snippet** — XDG vars, `$BIN_DIR`,
+  Homebrew, `$BIN_DIR` first on PATH. It must not live in a snippet: snippets guard on
+  `command -v <tool>`, so a tool that isn't on PATH yet makes them silently no-op. This is why
+  `pde/zsh` keeps that block in `.zshrc` rather than in `aliases.zsh`, and `pde/bash` in
+  `.bashrc`. Reloading must stay idempotent (`ensure_path` strips before prepending).
+- **A shell whose rc path is fixed has to move the distro's file aside.** `~/.bashrc` exists on
+  stock Debian and Fedora, so `pde/bash`'s `pre_install` renames it to `.bashrc.pre-ppm` (and
+  `post_remove` restores it); otherwise stow aborts the install and `-f` would delete it. Note
+  that shipping `~/.bash_profile` also stops login bash from reading `~/.profile`, which is what
+  puts `~/.local/bin` on PATH on Debian — another reason the rc owns the base environment.
+- **The rc only loads for interactive shells** (`case $- in *i*)` in bash, zsh's own rule for
+  `.zshrc`). So `ssh host 'ppm ...'` gets the real `ppm` binary from PATH, not the wrapper, and
+  no mise activation. Test with `bash -lic`, never `bash -lc`.
+- **Glob two levels** (`*.sh` and `*/*.sh`), which is what packages actually use
+  (`~/.config/zsh/op/`, `ssh/`, `ruby/`). Don't reach for bash's `globstar`: macOS ships bash
+  3.2, which doesn't have it.
+- **Guard every helper borrowed from another package.** `ppm/system`'s files use `pde/zsh`'s
+  `zcomp`, `zsrc` and `load_conf` when present and degrade silently when not, because ppm must
+  not depend on a package repo. The dependency is one-way: `pde/zsh` knows nothing of ppm.
+- **Don't declare software the bootstrap owns.** `ppm/system` ships mise's activation but no
+  `brew: [mise]`, and `pde/bash` declares no `brew: macos: [bash]` — both are untracked
+  `install.sh` bootstrap formulas, and declaring them would let `ppm remove` uninstall what ppm
+  itself runs on.
 
 ## Source Precedence
 
@@ -163,7 +216,8 @@ Plans are in `chorus/units/`. Follow the Chorus methodology:
 ### Lib Structure
 
 ppm is the `ppm/system` package: the `ppm` script and its libraries live under
-`packages/system/home/` and are stowed to `~/.local/bin/ppm` and `~/.local/lib/ppm/`.
+`packages/system/home/` and are stowed to `~/.local/bin/ppm` and `~/.local/lib/ppm/`
+(its shell snippets go to `~/.config/{sh,zsh,bash}/` — see Shell Integration).
 The `ppm` script holds only bootstrap: paths, library sourcing, `*.conf` loading, flag
 parsing and dispatch. Each command lives in the lib file for its area, next to its
 helpers:

@@ -20,7 +20,7 @@ This repo (`ppm/`) contains:
   config and its shell integration live under `packages/system/home/` and are stowed onto
   the machine like any other package (`~/.local/bin/ppm`, `~/.local/lib/ppm/*.sh`,
   `~/.config/{sh,zsh,bash}/{ppm,mise}.*`)
-- `packages/` — meta-packages (`system` = ppm itself, `dev` = dev/test tooling)
+- `packages/` — meta-packages (`system` = ppm itself, `dev` = dev/test tooling: containers, `ppm user`, the git hooks)
 - `install.sh` — bootstrap installer for new machines (clones this repo, installs the
   irreducible prereqs — Homebrew, stow, yq, mise — then stows `ppm/system`)
 - `chorus/units/` — development plans (Chorus methodology)
@@ -46,7 +46,7 @@ depends:
   - node
 ```
 
-- `version` — semver, patch auto-bumped by git hooks (future)
+- `version` — semver; the patch level is auto-bumped by ppm's git hook (see Git Hooks)
 - `author` — package author
 - `depends` — list of package names (resolved across repos in source order)
 - No `depends` key if package has no dependencies
@@ -97,6 +97,7 @@ Available functions packages can call from their hooks:
 - `debug "message"` — log debug info (visible with `--debug` flag)
 - `user_message "message"` — queue a message for the user (displayed after install completes). Supports `\n` for line breaks. Auto-prefixed with `[repo/package]`.
 - `ppm_fail "message"` — signal a non-fatal install failure. Prints to stderr immediately and queues for end-of-run summary. Caller should `return` after calling.
+- `_system_sudo "<what>" ["<message>"]` — obtain sudo for a hook that needs root. Returns 0 with the credential cache primed, so the real command can use `sudo -n` and never block an unattended install; on failure it `ppm_fail`s with `<message>` (default: the system-package wording) and returns 1. `pde/bash` uses it to write `/etc/shells`.
 
 ## Key Files
 
@@ -143,11 +144,39 @@ Rules:
   `command -v <tool>`, so a tool that isn't on PATH yet makes them silently no-op. This is why
   `pde/zsh` keeps that block in `.zshrc` rather than in `aliases.zsh`, and `pde/bash` in
   `.bashrc`. Reloading must stay idempotent (`ensure_path` strips before prepending).
+- **Re-assert Homebrew's PATH entries on every rc run, outside the `shellenv` guard.**
+  `brew shellenv` forks, so it sits behind `if [ -z "$HOMEBREW_PREFIX" ]` — everything else it
+  exports (`HOMEBREW_*`, `FPATH`, `INFOPATH`) survives being inherited, but PATH does not. macOS
+  runs `/usr/libexec/path_helper` from `/etc/zprofile` and `/etc/profile` in *every* login shell,
+  including nested ones (tmux starts one by default, as do `zsh -l`, ssh to self, and an editor's
+  or agent's shell), and it rebuilds PATH with `/etc/paths` in front. A nested login shell
+  inherits `$HOMEBREW_PREFIX`, the guard skips `shellenv`, and the demotion stands:
+  `/opt/homebrew/bin` below `/bin`, so `bash` silently resolves to Apple's 3.2.57 again. Both rcs
+  therefore call `ensure_path` on `$HOMEBREW_PREFIX/sbin`, then `$HOMEBREW_PREFIX/bin`, then
+  `$BIN_DIR`, unconditionally. Each call prepends, so that order leaves `~/.local/bin` first.
+- **`ensure_path` is rc-provided base API in both shells.** `.zshrc` and `.bashrc` each define it
+  before their snippet loop, so a portable `sh/` snippet may call it, not only a `zsh/` or
+  `bash/` one (`pde/ruby-tools` and `pdt/solana` do today from `.zsh`). The bash copy is written
+  for bash 3.2.
 - **A shell whose rc path is fixed has to move the distro's file aside.** `~/.bashrc` exists on
   stock Debian and Fedora, so `pde/bash`'s `pre_install` renames it to `.bashrc.pre-ppm` (and
   `post_remove` restores it); otherwise stow aborts the install and `-f` would delete it. Note
   that shipping `~/.bash_profile` also stops login bash from reading `~/.profile`, which is what
   puts `~/.local/bin` on PATH on Debian — another reason the rc owns the base environment.
+- **The shell package owns the login shell.** `pde/zsh`'s `post_install` chsh's to the distro
+  zsh; `pde/bash`'s does the same for `$(brew_prefix)/bin/bash`, **on macOS only**. There
+  `/etc/shells` lists just `/bin/*`, and `chpass` rejects anything unlisted, so the hook
+  registers the path first (`grep -qxF`, then `_system_sudo` and `sudo -n tee -a`) and only then
+  chsh's — falling back to `sudo -n chsh -s <shell> <user>` because an unprivileged `chsh` cannot
+  authenticate without a TTY. A macOS update rewrites `/etc/shells`, so re-running the install is
+  what puts the entry back; every step is a no-op once settled. Register the brew *prefix*
+  symlink: a `readlink -f` Cellar path breaks on the next `brew upgrade bash`, and
+  `command -v bash` is worse still — hooks run under whatever bash won the PATH race, possibly
+  the 3.2 being escaped. On Linux the distro bash is already 5.2+ and stays the login shell:
+  brew's Linux prefix is under `/home` (may be unmounted at login via autofs or NFS), SELinux
+  labels binaries there `user_home_t` not `shell_exec_t`, and brew may link its own glibc.
+  Neither package rolls the login shell back on remove — `pde/bash` does not uninstall the
+  formula, so the shell keeps working, and `/etc/shells` is machine-wide.
 - **The rc only loads for interactive shells** (`case $- in *i*)` in bash, zsh's own rule for
   `.zshrc`). So `ssh host 'ppm ...'` gets the real `ppm` binary from PATH, not the wrapper, and
   no mise activation. Test with `bash -lic`, never `bash -lc`.
@@ -213,6 +242,52 @@ Plans are in `chorus/units/`. Follow the Chorus methodology:
 3. Implement and test
 4. Write `log.md` on completion
 
+### Git Hooks
+
+`ppm/dev` ships a `pre-commit` hook that bumps a package's patch version when a commit touches
+it, and creates `package.yml` for a package that has none. The files live in the package at
+`packages/dev/home/.config/git/ppm-hooks/` and are stowed to `~/.config/git/ppm-hooks/`.
+
+`ppm hooks` wires them up, because **git does not carry hooks through a clone** — so this is an
+install step, not repo content:
+
+```
+ppm hooks                        # status (default)
+ppm hooks install [--all] [repo...]
+ppm hooks uninstall [--all] [repo...]
+```
+
+With no repo names it acts on the `system.list` repos; `--all` adds your `user.list` ones.
+`ppm/dev`'s `post_install` runs `ppm hooks install`, and its `post_remove` runs
+`ppm hooks uninstall --all`. Re-run `ppm hooks install` after `ppm src add`, since `post_install`
+can't know about a repo added later.
+
+How it is wired, and why:
+
+- Each repo gets **`core.hooksPath` set locally**, pointed at the stowed directory. Pointing at
+  the stowed path (not into the package) means editing a hook takes effect in every repo at once,
+  and a higher-priority layer can override a single hook file through stow.
+- **Never set `core.hooksPath` globally.** A global value applies to every repo on the machine
+  *and* suppresses each repo's own `.git/hooks`, which would silently disable husky/lefthook/
+  overcommit in unrelated projects. `init.templateDir` is no good either: it copies at
+  `git init`/`clone` only, isn't retroactive, and the copies go stale.
+- `core.hooksPath` replaces a repo's `.git/hooks` wholesale, so `ppm hooks install` warns when
+  the repo already has real hooks there, and leaves a `core.hooksPath` it didn't set alone.
+  `uninstall` only unsets the value ppm wrote.
+- A `core.hooksPath` pointing at a missing directory is harmless — git finds no hooks and commits
+  normally — so a leftover setting can never block a commit.
+
+The bump rule is **once per unpushed series**: the hook compares the working version against the
+version at the push base (`@{upstream}`, else `origin/HEAD`/`main`/`master`) and only bumps when
+they match. So a run of commits before one push bumps once, `git commit --amend` doesn't bump
+again, and a version you set by hand is respected. A repo with nothing pushed yet has had zero
+pushes, so it gets zero bumps: a new package settles at `0.1.0` and stays until its first push.
+A version that isn't `N.N.N` is left alone rather than mangled.
+
+`lib/package-meta.sh` next to the hook is deliberately standalone — it uses `sed` rather than
+`yq` so a hook never depends on ppm's environment, and it stays out of `~/.local/lib/ppm/`
+because its `meta_*` names would share a namespace with `packages.sh`'s.
+
 ### Lib Structure
 
 ppm is the `ppm/system` package: the `ppm` script and its libraries live under
@@ -226,8 +301,8 @@ helpers:
 packages/system/home/.local/lib/ppm/
   core.sh        # API for package hooks: os(), arch(), add_to_file(), remove_from_file(),
                  # debug(), user_message(), ppm_fail()
-  platform.sh    # platform() (macos/debian/fedora), system_pkg_*() (apt/dnf), brew_prefix(), brew_env(), brew_owner(), brew_is_owner(),
-                 # brew_require_owner(), update_brew_if_needed()
+  platform.sh    # platform() (macos/debian/fedora), system_pkg_*() (apt/dnf), _system_sudo(), brew_prefix(), brew_env(), brew_owner(),
+                 # brew_is_owner(), brew_require_owner(), update_brew_if_needed()
   sources.sh     # src (add, remove, list, ssh, update), customize; collect_repos(), update_ppm_if_needed()
   packages.sh    # list, show, path, deps; collect_packages(), find_package_dirs(), resolve_deps() (layered topo sort),
                  # package.yml reads (meta_depends, meta_version), install trackers (meta_mark_installed, ...)
@@ -240,7 +315,7 @@ Flags (`force`, `config`, `reinstall`, `skip_deps`) are locals of `main()` that 
 
 Library sourcing in `ppm`: every `*.sh` in `$PPM_LIB_DIR` (`~/.local/lib/ppm/`) is
 sourced. That directory holds both ppm's own core libraries (stowed from `ppm/system`)
-and package-contributed extensions (e.g. `ppm/dev`'s `container.sh`). During a fresh
+and package-contributed extensions (e.g. `ppm/dev`'s `container.sh` and `hooks.sh`). During a fresh
 install `install.sh` sources the core libs directly from the clone and stows `ppm/system`
 so they are present before `ppm` first runs.
 

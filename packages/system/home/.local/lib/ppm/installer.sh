@@ -111,6 +111,8 @@ install_single_package() {
 
   stow_package "$pkg_dir"
   meta_cleanup_stale "$repo_name" "$pkg_name" "$pkg_dir" "$STOWED_FILES"
+  _reload_stowed_libs "$STOWED_FILES"
+  _install_declared_resources "$repo_name" "$pkg_name" "$pkg_dir"
 
   if $run_hooks; then
     (
@@ -187,11 +189,80 @@ remover() {
       # Phase 4: dependencies ppm installed that nothing else needs, then the tracker
       # (skipped by reinstall, which installs the package again right away)
       if ! ${keep_tracker:-false}; then
+        _remove_declared_resources "$repo_name" "$pkg_name"
         _remove_installed_deps "$repo_name" "$pkg_name" "$pkg_dir"
         meta_mark_removed "$repo_name" "$pkg_name"
       fi
     done 3<<< "$matches"
   done
+}
+
+# --- Declared resources (any package.yml key ppm core does not own) ---
+#
+# ppm owns version, author, depends, platforms, brew, cask and system. Any other top-level key is
+# handed to ppm_resource_<key>, a function a package contributes by stowing a file into
+# PPM_LIB_DIR. The handler gets <repo> <pkg> <package_dir> and records what it created with
+# meta_add_resource, so removal can find it without the package directory.
+#
+# A key with no handler is deliberately silent: `agent:` is read by ai/psm at query time and is
+# none of the installer's business. The cost is that a misspelled resource key does nothing
+# quietly, which --debug will tell you about.
+
+# Usage: _install_declared_resources <repo_name> <package_name> <package_dir>
+_install_declared_resources() {
+  local repo="$1" pkg="$2" dir="$3" key handler
+  ${config:-false} && return 0
+
+  while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    handler="ppm_resource_$key"
+    if ! declare -f "$handler" >/dev/null; then
+      debug "$repo/$pkg declares '$key' but no $handler is installed; ignoring"
+      continue
+    fi
+    debug "Handling '$key' resources for $repo/$pkg"
+    # One handler failing must not abandon the run or skip the tracker write
+    "$handler" "$repo" "$pkg" "$dir" || ppm_fail "$repo/$pkg: '$key' resources failed" || true
+  done < <(meta_extra_keys "$dir")
+}
+
+# Usage: _remove_declared_resources <repo_name> <package_name>
+# Reads the keys back from the tracker: the package directory may already be gone.
+_remove_declared_resources() {
+  local repo="$1" pkg="$2" key handler
+  ${config:-false} && return 0
+
+  while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    handler="ppm_resource_${key}_remove"
+    if ! declare -f "$handler" >/dev/null; then
+      user_message "'$key' resources were left in place: $(echo $(meta_resources "$repo" "$pkg" "$key"))"
+      continue
+    fi
+    PPM_CURRENT_PACKAGE="$repo/$pkg"
+    "$handler" "$repo" "$pkg" || ppm_fail "$repo/$pkg: removing '$key' resources failed" || true
+  done < <(meta_resource_keys "$repo" "$pkg")
+}
+
+# Re-source library files a package just stowed into PPM_LIB_DIR.
+#
+# `ppm` sources that directory once at startup, so a package installed in this very run — the
+# usual case for `ppm install <thing that depends on wsm>` — would otherwise contribute neither
+# its commands nor its resource handlers until the next invocation.
+# Usage: _reload_stowed_libs <newline-separated stowed files>
+_reload_stowed_libs() {
+  local rel lib
+  [[ -n "$1" ]] || return 0
+  while IFS= read -r rel; do
+    case "$rel" in
+      .local/lib/ppm/*.sh) ;;
+      *) continue ;;
+    esac
+    lib="$HOME/$rel"
+    [[ -f "$lib" ]] || continue
+    debug "Sourcing newly stowed library: $rel"
+    source "$lib"
+  done <<< "$1"
 }
 
 # --- Declared dependencies (package.yml brew, cask, system) ---

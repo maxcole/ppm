@@ -260,6 +260,25 @@ meta_deps() {
   return 0
 }
 
+# --- Declared resources ---
+#
+# Top-level package.yml keys ppm itself owns. Any other key is a declared resource: the installer
+# hands it to ppm_resource_<key>, a function another package contributes through PPM_LIB_DIR.
+# A key with no handler is not an error. `agent:` (ai/psm reads it at query time to find the
+# agents it should sync skills to) is the standing example of a key that is simply none of the
+# installer's business, so an unhandled key is a debug line rather than a warning.
+PPM_CORE_KEYS="version author depends platforms brew cask system"
+
+# Top-level keys of a package.yml that ppm core does not own, one per line
+# Usage: meta_extra_keys <package_dir>
+meta_extra_keys() {
+  local meta="$1/package.yml" key
+  [[ -f "$meta" ]] || return 0
+  for key in $(yq -r 'keys | .[]' "$meta" 2>/dev/null); do
+    [[ " $PPM_CORE_KEYS " == *" $key "* ]] || echo "$key"
+  done
+}
+
 # Add items to a newline-separated list, skipping empty items and duplicates (keeps first-seen order)
 # Usage: list=$(_list_add "$list" item...)
 _list_add() {
@@ -296,9 +315,11 @@ meta_mark_installed() {
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
   # Read before the tracker is rewritten
-  local brew cask
+  local brew cask resources=""
   brew=$(_list_add "$(meta_installed_deps "$repo_name" "$pkg_name" brew)" $new_brew)
   cask=$(_list_add "$(meta_installed_deps "$repo_name" "$pkg_name" cask)" $new_cask)
+  # Resource handlers run before this write, so their record has to survive it
+  [[ -f "$tracker" ]] && resources=$(yq -r 'select(.resources != null) | {"resources": .resources}' "$tracker" 2>/dev/null)
 
   mkdir -p "$(dirname "$tracker")"
 
@@ -316,7 +337,38 @@ meta_mark_installed() {
       [[ -z "$brew" ]] || { echo "  brew:"; printf '    - %s\n' $brew; }
       [[ -z "$cask" ]] || { echo "  cask:"; printf '    - %s\n' $cask; }
     fi
+    [[ -z "$resources" ]] || printf '%s\n' "$resources"
   } > "$tracker"
+}
+
+# Record a path a resource handler created, so remove can find it without re-reading package.yml
+# (the package directory may be gone by then). Seeds the tracker when the handler runs before
+# meta_mark_installed has written one, which is the normal order on a first install.
+# Usage: meta_add_resource <repo_name> <package_name> <key> <path>
+meta_add_resource() {
+  local tracker
+  tracker=$(_tracker_path "$1" "$2")
+  mkdir -p "$(dirname "$tracker")"
+  [[ -s "$tracker" ]] || echo '{}' > "$tracker"
+  K="$3" P="$4" yq -i '.resources[strenv(K)] = ((.resources[strenv(K)] // []) + [strenv(P)] | unique)' "$tracker"
+}
+
+# Paths a resource handler recorded for a package, one per line
+# Usage: meta_resources <repo_name> <package_name> <key>
+meta_resources() {
+  local tracker
+  tracker=$(_tracker_path "$1" "$2")
+  [[ -f "$tracker" ]] || return 0
+  K="$3" yq -r '.resources[strenv(K)][]?' "$tracker" 2>/dev/null
+}
+
+# Resource keys recorded for a package, one per line
+# Usage: meta_resource_keys <repo_name> <package_name>
+meta_resource_keys() {
+  local tracker
+  tracker=$(_tracker_path "$1" "$2")
+  [[ -f "$tracker" ]] || return 0
+  yq -r '.resources // {} | keys | .[]' "$tracker" 2>/dev/null
 }
 
 # Remove the tracker file for a package
@@ -487,6 +539,13 @@ show() {
         names=$(meta_installed_deps "$repo_name" "$package_name" "$manager")
         [[ -z "$names" ]] || echo "Installed by ppm ($manager): $(echo $names)"
       done
+
+      local key
+      while IFS= read -r key; do
+        [[ -n "$key" ]] || continue
+        names=$(meta_resources "$repo_name" "$package_name" "$key")
+        [[ -z "$names" ]] || echo "Resources ($key): $(echo $names)"
+      done < <(meta_resource_keys "$repo_name" "$package_name")
 
       local inst_files
       inst_files=$(meta_installed_files "$repo_name" "$package_name")

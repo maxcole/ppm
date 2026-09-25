@@ -51,8 +51,10 @@ _ppm() {
                 file)
                     if [[ ${#words[@]} -eq 3 ]]; then
                         local -a file_cmds
-                        file_cmds=('claim:Copy files into your repo and stow them' 'reset:Restore the original package links')
+                        file_cmds=('add:Move unowned files into repo/package and stow them' 'claim:Copy files into your repo and stow them' 'reset:Restore the original package links' 'protect:Detach files from ppm' 'unprotect:Let ppm manage files again')
                         _describe 'subcommand' file_cmds
+                    elif [[ ${words[3]} == add && ${#words[@]} -eq 4 ]]; then
+                        _ppm_packages_available
                     elif [[ ${words[3]} == reset ]]; then
                         local -a claimed
                         local claims="${XDG_DATA_HOME:-$HOME/.local/share}/ppm/.installed/claims.yml"

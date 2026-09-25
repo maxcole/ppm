@@ -54,6 +54,11 @@ There are three levels of ownership for any file ppm manages, because "ppm owns 
   from it entirely. ppm will never relink or force-remove it, including under `-f`. This is the
   right answer for something that is true of this machine only.
 
+A file no package owns yet goes into a package with `ppm file add <repo/package> <file...>`: it
+moves the files to the same path under the package's `home/`, creating the package if needed, and
+stows them back. It takes files, not directories — `ppm file add spaces/frank .wsm/*` — so exactly
+what the shell expanded is moved. `reset` undoes it, leaving plain files behind.
+
 `ppm file reset` and `ppm file unprotect` walk each of those back. None of them touch git; the
 commits in your repo are yours to make.
 

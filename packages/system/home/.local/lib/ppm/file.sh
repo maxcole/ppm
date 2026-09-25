@@ -2,6 +2,7 @@
 # File ownership — take individual files out of ppm's management
 #
 # `ppm file claim` copies a stowed file into your own repo/package and stows it from there.
+# `ppm file add` is claim for files no package owns yet, with the target named up front.
 # `ppm file reset` removes the copy and restores the original package's link.
 # `ppm file protect` turns a file into a plain local copy that ppm's stow will never touch
 #   again (no repo needed; machine-specific). `ppm file unprotect` hands it back to ppm.
@@ -16,9 +17,12 @@ PPM_CLAIMS_FILE="$PPM_INSTALLED_DIR/claims.yml"
 PPM_PROTECTED_FILE="$PPM_INSTALLED_DIR/protected.yml"
 
 _file_usage() {
-  echo "Usage: ppm file <claim|reset|protect|unprotect> <file...>"
+  echo "Usage: ppm file <add|claim|reset|protect|unprotect> <file...>"
+  echo "  add <repo/package> <file...>                    Move files into repo/package and stow them"
+  echo "                                                  (the package is created if needed; use dir/* for a directory)"
   echo "  claim <file...> [--repo REPO] [--package NAME]  Move files into REPO/NAME and stow them"
-  echo "                                                  (default: \$PPM_DEFAULT_REPO/<owning package>)"
+  echo "                                                  (default: \$PPM_DEFAULT_REPO/<owning package>;"
+  echo "                                                  --package also accepts repo/package)"
   echo "  reset <file...>                                 Remove claimed files and restore the original links"
   echo "  protect <file...>                               Detach files from ppm; keep a local copy stow won't touch"
   echo "  unprotect <file...>                             Let ppm manage the files again"
@@ -44,8 +48,37 @@ file_command() {
   local subcommand="${args[0]:-}"
   local files=(${args[@]+"${args[@]:1}"})
 
+  # add: the first argument is the target, and it must name both repo and package
+  if [[ "$subcommand" == "add" ]]; then
+    if [[ -n "$repo$package" ]]; then
+      echo "Error: add takes its target as <repo/package>, not --repo or --package"
+      exit 1
+    fi
+    package="${files[0]:-}"
+    if [[ "$package" != */* ]]; then
+      echo "Error: add needs a target of the form <repo/package>"
+      _file_usage
+      exit 1
+    fi
+    files=(${files[@]+"${files[@]:1}"})
+  fi
+
+  # --package repo/pkg is shorthand for --repo repo --package pkg
+  if [[ "$package" == */* ]]; then
+    if [[ -n "$repo" ]]; then
+      echo "Error: --package $package already names a repo; drop --repo"
+      exit 1
+    fi
+    repo="${package%%/*}"
+    package="${package#*/}"
+    if [[ -z "$repo" || -z "$package" || "$package" == */* ]]; then
+      echo "Error: expected <repo/package>, got '$repo/$package'"
+      exit 1
+    fi
+  fi
+
   case "$subcommand" in
-    claim|reset)
+    add|claim|reset)
       if [[ ${#files[@]} -eq 0 ]]; then
         _file_usage
         exit 1
@@ -58,7 +91,7 @@ file_command() {
       collect_repos
       local f status=0
       for f in "${files[@]}"; do
-        if [[ "$subcommand" == "claim" ]]; then
+        if [[ "$subcommand" != "reset" ]]; then
           _file_claim "$f" "$repo" "$package" || status=1
         else
           _file_reset "$f" || status=1
@@ -106,7 +139,9 @@ _file_claim() {
   local src="$HOME/$rel"
 
   [[ -e "$src" ]] || { ppm_fail "File not found: ~/$rel"; return 1; }
-  [[ -d "$src" ]] && { ppm_fail "Directories are not supported: ~/$rel"; return 1; }
+  [[ -d "$src" ]] && { ppm_fail "Directories are not supported: ~/$rel (use ~/$rel/*)"; return 1; }
+  # claim's stow does not use the protected ignore list, so it would re-link a protected file
+  _protected_has "$rel" && { ppm_fail "~/$rel is protected; run 'ppm file unprotect' first"; return 1; }
 
   local existing
   existing=$(_claim_get "$rel" claimant)

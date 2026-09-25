@@ -9,7 +9,7 @@
 #   sources.sh     src (add, remove, list, ssh, update), customize
 #   packages.sh    list, show, path, deps
 #   installer.sh   install, remove
-#   file.sh        file (claim, reset)
+#   file.sh        file (add, claim, reset, protect, unprotect)
 #   completion.sh  completion
 # core.sh holds the functions package hooks can call (install_dep, user_message, ...)
 # platform.sh detects the platform and locates Homebrew and its owner

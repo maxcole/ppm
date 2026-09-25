@@ -144,3 +144,44 @@ ppm_fail() {
   user_message "ERROR: $*"
   return 1
 }
+
+# --- Post-run callbacks ---
+#
+# A package registers a function in its install.sh to hear about every later `ppm install` and
+# `ppm remove`: once the whole run is done, ppm calls <function> <install|remove> <repo/pkg>...
+# with every package that run installed (dependencies included) or removed. Registrations live
+# in $PPM_INSTALLED_DIR/callbacks.yml (repo/pkg: function) and are dropped when the package is
+# removed. ai/psm uses it to sync skills when an agent package comes or goes.
+
+_callbacks_file() {
+  echo "$PPM_INSTALLED_DIR/callbacks.yml"
+}
+
+# Register the current package's callback; call it from post_install. Re-registering replaces it.
+# Usage (in a package install.sh):
+#   post_install() { ppm_register_callback my_pkg_changed; }
+#   my_pkg_changed() { local event="$1"; shift; ... "$@" are repo/pkg names ...; }
+ppm_register_callback() {
+  local fn="${1:-}" file
+  if [[ -z "$fn" || -z "$PPM_CURRENT_PACKAGE" ]]; then
+    ppm_fail "ppm_register_callback needs a function name and must be called from a package hook"
+    return 1
+  fi
+  file=$(_callbacks_file)
+  mkdir -p "$(dirname "$file")"
+  [[ -s "$file" ]] || echo '{}' > "$file"
+  P="$PPM_CURRENT_PACKAGE" F="$fn" yq -i '.[strenv(P)] = strenv(F)' "$file"
+}
+
+# Drop the current package's callback. ppm does this itself when the package is removed.
+ppm_unregister_callback() {
+  _callback_unregister "$PPM_CURRENT_PACKAGE"
+}
+
+# Usage: _callback_unregister <repo/pkg>
+_callback_unregister() {
+  local file
+  file=$(_callbacks_file)
+  [[ -f "$file" && -n "${1:-}" ]] || return 0
+  P="$1" yq -i 'del(.[strenv(P)])' "$file"
+}

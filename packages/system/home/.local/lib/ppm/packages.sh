@@ -264,10 +264,10 @@ meta_deps() {
 #
 # Top-level package.yml keys ppm itself owns. Any other key is a declared resource: the installer
 # hands it to ppm_resource_<key>, a function another package contributes through PPM_LIB_DIR.
-# A key with no handler is not an error. `agent:` (ai/psm reads it at query time to find the
-# agents it should sync skills to) is the standing example of a key that is simply none of the
-# installer's business, so an unhandled key is a debug line rather than a warning.
-PPM_CORE_KEYS="version author depends platforms brew cask system"
+# A key with no handler is not an error, so an unhandled key is a debug line rather than a warning.
+# `meta:` is ppm's but ppm never reads it: a free-form map for other packages to read, such as the
+# `meta.agent` ids ai/psm syncs skills to. Put package metadata there, not in a top-level key.
+PPM_CORE_KEYS="version author depends platforms brew cask system meta"
 
 # Top-level keys of a package.yml that ppm core does not own, one per line
 # Usage: meta_extra_keys <package_dir>

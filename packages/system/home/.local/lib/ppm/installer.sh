@@ -10,6 +10,9 @@ PPM_IGNORE_ARGS=()
 PPM_NEW_BREW=""
 PPM_NEW_CASK=""
 
+# Packages remover() actually removed this run (repo/pkg), for the post-run callbacks
+PPM_REMOVED=()
+
 # --- Commands ---
 
 # Install one or more packages as requested by the user
@@ -76,6 +79,7 @@ install() {
   done
 
   ${config:-false} || _mise_install_declared
+  _run_callbacks install ${RESOLVE_ORDER[@]+"${RESOLVE_ORDER[@]}"}
   flush_user_messages
 }
 
@@ -83,6 +87,7 @@ install() {
 remove() {
   expand_packages "remove" "$@"
   remover "${EXPANDED_PACKAGES[@]}"
+  _run_callbacks remove ${PPM_REMOVED[@]+"${PPM_REMOVED[@]}"}
   flush_user_messages
 }
 
@@ -192,21 +197,63 @@ remover() {
         _remove_declared_resources "$repo_name" "$pkg_name"
         _remove_installed_deps "$repo_name" "$pkg_name" "$pkg_dir"
         meta_mark_removed "$repo_name" "$pkg_name"
+        _callback_unregister "$repo_name/$pkg_name"
+        PPM_REMOVED+=("$repo_name/$pkg_name")
       fi
     done 3<<< "$matches"
   done
 }
 
+# --- Post-run callbacks (registered with ppm_register_callback, see core.sh) ---
+
+# Call every registered callback once with the packages this run installed or removed.
+# A callback runs in a subshell with its package's install.sh sourced, like the hooks; one that
+# fails is reported and the rest still run. Skipped with -c, like hooks.
+# Usage: _run_callbacks <install|remove> <repo/pkg>...
+_run_callbacks() {
+  local event="$1" file qualified fn dir
+  shift
+  ${config:-false} && return 0
+  [[ $# -gt 0 ]] || return 0
+  file=$(_callbacks_file)
+  [[ -s "$file" ]] || return 0
+
+  # fd 3 keeps callbacks that read stdin from consuming the registrations
+  while IFS=$'\t' read -r -u 3 qualified fn; do
+    [[ -n "$qualified" && -n "$fn" ]] || continue
+    dir="$PPM_DATA_HOME/${qualified%%/*}/packages/${qualified#*/}"
+    if [[ ! -f "$(_tracker_path "${qualified%%/*}" "${qualified#*/}")" || ! -f "$dir/install.sh" ]]; then
+      debug "Skipping $qualified's callback $fn: not installed, or no install.sh"
+      continue
+    fi
+
+    PPM_CURRENT_PACKAGE="$qualified"
+    debug "Calling $qualified's $fn $event ($# package(s))"
+    (
+      source "$dir/install.sh"
+      if ! declare -f "$fn" >/dev/null; then
+        ppm_fail "registered callback '$fn' is not defined in install.sh"
+        exit 0
+      fi
+      "$fn" "$event" "$@"
+    ) || ppm_fail "callback '$fn' failed" || true
+  done 3< <(yq -r 'to_entries | .[] | .key + "\t" + .value' "$file" 2>/dev/null)
+
+  # Callbacks run last; leaving this set would misattribute any later user_message to whichever
+  # package happened to be registered last
+  PPM_CURRENT_PACKAGE=""
+}
+
 # --- Declared resources (any package.yml key ppm core does not own) ---
 #
-# ppm owns version, author, depends, platforms, brew, cask and system. Any other top-level key is
-# handed to ppm_resource_<key>, a function a package contributes by stowing a file into
+# ppm owns version, author, depends, platforms, brew, cask, system and meta. Any other top-level
+# key is handed to ppm_resource_<key>, a function a package contributes by stowing a file into
 # PPM_LIB_DIR. The handler gets <repo> <pkg> <package_dir> and records what it created with
 # meta_add_resource, so removal can find it without the package directory.
 #
-# A key with no handler is deliberately silent: `agent:` is read by ai/psm at query time and is
-# none of the installer's business. The cost is that a misspelled resource key does nothing
-# quietly, which --debug will tell you about.
+# `meta:` is free-form metadata other packages read (ai/psm reads `meta.agent`), never a resource.
+# A key with no handler is deliberately silent. The cost is that a misspelled resource key does
+# nothing quietly, which --debug will tell you about.
 
 # Usage: _install_declared_resources <repo_name> <package_name> <package_dir>
 _install_declared_resources() {
@@ -217,7 +264,13 @@ _install_declared_resources() {
     [[ -n "$key" ]] || continue
     handler="ppm_resource_$key"
     if ! declare -f "$handler" >/dev/null; then
-      debug "$repo/$pkg declares '$key' but no $handler is installed; ignoring"
+      # `meta:` is where free-form metadata belongs, so an unowned top-level key is either a
+      # resource whose provider is missing or a typo. Both deserve saying out loud: the
+      # alternative is a package that declares something and silently does nothing.
+      # (install_single_package already set PPM_CURRENT_PACKAGE, so this is prefixed with it;
+      # the trailing space matters, user_message strips each argument's leading whitespace.)
+      user_message "declares '$key' but nothing handles it. Add the package providing $handler " \
+                   "to depends:, or move it under meta: if it is only metadata."
       continue
     fi
     debug "Handling '$key' resources for $repo/$pkg"
